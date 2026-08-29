@@ -18,8 +18,15 @@
     if (!otherStore.releaseBody) return '暂无更新说明'
     const filtered = otherStore.releaseBody
       .split('\n')
-      .filter(line => !/full\s*changelog/i.test(line.trim()))
+      .filter(line => {
+        const t = line.trim()
+        // 隐藏 changelog 尾注；feat 提交记录行（feat 小版本信息）不在更新预览中展示
+        if (/full\s*changelog/i.test(t)) return false
+        if (/^([\-*•]|\s)*feat(\b|[:：])/i.test(t)) return false
+        return true
+      })
       .join('\n')
+    if (!filtered.trim()) return '暂无更新说明'
     // releaseBody 来自可能被镜像篡改的远端 JSON，渲染前必须消毒
     return DOMPurify.sanitize(marked.parse(filtered), { USE_PROFILES: { html: true } })
   })

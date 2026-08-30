@@ -3,7 +3,7 @@
   import dayjs from 'dayjs';
   import VueSlider from 'vue-slider-component'
   import { noticeOpen } from '../utils/dialog'
-  import { getCloudDiskData, uploadCloudSong } from '../api/cloud'
+  import { uploadCloudSong } from '../api/cloud'
   import CloudFileList from '../components/CloudFileList.vue'
   import { useUserStore } from '../store/userStore'
   import { useCloudStore } from '../store/cloudStore';
@@ -16,12 +16,24 @@
   const uploadCloudDiskFile = ref()
   const fileUpdateTime = {}
   let fileLength = 0
+  let uploadDone = 0
+
+  // 单个文件到达终态（成功/放弃/异常）时计数，全部结束后刷新云盘列表与容量
+  const finishOne = () => {
+    uploadDone++
+    if (fileLength && uploadDone >= fileLength) {
+      uploadDone = 0
+      noticeOpen('上传完毕，正在刷新列表', 2)
+      cloudStore.refresh().catch(() => {})
+    }
+  }
 
   onMounted(() => {
     typeChange(1)
     if(uploadCloudDiskFile.value) uploadCloudDiskFile.value.addEventListener('change', function (e) {
       let currentIndx = 0
       fileLength = this.files.length
+      uploadDone = 0
       for (const item of this.files) {
         currentIndx += 1
         upload(item, currentIndx)
@@ -34,17 +46,8 @@
   function typeChange(num) {
     typeSelect.value = num
     if(num == 1) {
-      let params = {
-        limit: 500,
-        offset: 0,
-        timestamp: new Date().getTime(),
-      }
-      getCloudDiskData(params).then(result => {
-        count.value = result.count
-        size.value = (result.size / 1024 / 1024 / 1024).toFixed(1)
-        maxSize.value = result.maxSize / 1024 / 1024 / 1024
-        cloudSongs.value = result.data
-      }).catch(() => {
+      // 列表与容量统一走 cloudStore.refresh（重置分页）
+      cloudStore.refresh().catch(() => {
         noticeOpen("云盘数据获取失败", 2)
       })
     }
@@ -59,8 +62,8 @@
     uploadCloudSong(formData).then(res => {
       if(res.code == 200) {
         noticeOpen(`${file.name} 上传成功`, 2)
+        finishOne()
         if (currentIndx >= fileLength) {
-          noticeOpen('上传完毕', 2)
           formData = null
           // 重置文件选择框，否则同名文件无法再次上传（原代码误用 this.files）
           if(uploadCloudDiskFile.value) uploadCloudDiskFile.value.value = ''
@@ -69,6 +72,7 @@
         fileUpdateTime[file.name] ? fileUpdateTime[file.name] += 1 : fileUpdateTime[file.name] = 1
         if (fileUpdateTime[file.name] >= 4) {
           noticeOpen(`上传失败：${file.name}`, 3)
+          finishOne()
           return
         } else {
           noticeOpen(`${file.name} 失败 ${fileUpdateTime[file.name]} 次`, 3)
@@ -79,6 +83,7 @@
       }
     }).catch(() => {
       noticeOpen(`上传失败：${file.name}`, 3)
+      finishOne()
     }).finally(() => {
       isUploading.value = false
     })
@@ -146,7 +151,7 @@
             <div class="info-list">
               <div class="info-item">
                 <div class="item-lable">当前用户</div>
-                <div class="item-info">{{userStore.user.nickname}}</div>
+                <div class="item-info">{{ userStore.user?.nickname || '未登录' }}</div>
               </div>
               <div class="info-item">
                 <div class="item-lable">云盘容量</div>
@@ -198,7 +203,7 @@
     </div>
 
     <div class="disk-right">
-      <CloudFileList></CloudFileList>
+      <CloudFileList :has-more="cloudStore.hasMore" :loading-more="cloudStore.loadingMore" @load-more="cloudStore.loadMore()"></CloudFileList>
     </div>
   </div>
 </template>

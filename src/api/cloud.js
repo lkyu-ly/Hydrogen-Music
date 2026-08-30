@@ -22,9 +22,37 @@ import request from "../utils/request";
  * @param {*} params 
  * @returns 
  */
- export function getCloudDiskDrtail(params) {
+ export function getCloudDiskDetail(params) {
     return request({
         url: '/user/cloud/detail',
+        method: 'get',
+        params,
+    })
+ }
+// 兼容旧拼写
+export { getCloudDiskDetail as getCloudDiskDrtail }
+
+/**
+ * 说明 : 云盘歌曲歌词获取（uid: 用户 id, sid: 云盘歌曲 id）
+ * @param {*} params
+ * @returns
+ */
+export function getCloudLyric(params) {
+    return request({
+        url: '/cloud/lyric_get',
+        method: 'get',
+        params,
+    })
+}
+
+/**
+ * 说明 : 云盘歌曲匹配曲库（uid: 用户 id, sid: 云盘歌曲 id, asid: 关联的曲库歌曲 id）
+ * @param {*} params
+ * @returns
+ */
+export function getCloudMatch(params) {
+    return request({
+        url: '/cloud/match',
         method: 'get',
         params,
     })

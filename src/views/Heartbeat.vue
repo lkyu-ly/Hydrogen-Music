@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, onActivated, watch, nextTick } from 'vue'
 import VueSlider from 'vue-slider-component'
 import '../assets/css/slider.css'
 import { getPersonalFM, getLyric } from '../api/song'
@@ -49,6 +49,9 @@ function getArtistNames(ar) { return ar?.length ? ar.map(a => a?.name || a).join
 // 歌词解析
 const lyricLines = ref([])
 const currentLyricIdx = ref(-1)
+// 罗马音/拼音（ABC 按钮）与 翻译（译 按钮）显示开关，与主歌词页同款；原文始终显示
+const showRoma = ref(true)
+const showTrans = ref(true)
 
 function parseLyric(raw) {
   const re = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/g
@@ -59,7 +62,10 @@ function parseLyric(raw) {
     const end = m.index + m[0].length
     const rest = raw.substring(end)
     const next = rest.search(/\[/)
-    lines.push({ time: t, text: (next === -1 ? rest : rest.substring(0, next)).trim() })
+    const text = (next === -1 ? rest : rest.substring(0, next)).trim()
+    // 跳过空文本行，避免黑色高亮条落在空白处
+    if (!text) continue
+    lines.push({ time: t, text })
   }
   return lines
 }
@@ -112,7 +118,8 @@ function lyricLineStyle(idx) {
 
 function updateTrackOffset() {
   const vp = lyricViewport.value
-  if (!vp) return
+  // keep-alive 切走时组件脱离文档，clientHeight/offsetTop 全为 0，此时不测量（保留上次的有效偏移）
+  if (!vp || !vp.isConnected) return
   if (currentLyricIdx.value < 0) {
     trackOffset.value = 0
     return
@@ -129,6 +136,8 @@ function updateTrackOffset() {
 
 watch(currentLyricIdx, () => nextTick(updateTrackOffset))
 watch(lyricLines, () => nextTick(updateTrackOffset))
+// keep-alive 切回页面时组件重新挂载到文档，重新校准滚动位置（期间行号未变不会触发上面的 watch）
+onActivated(() => nextTick(updateTrackOffset))
 
 async function loadFmSongs() {
   if (loading.value) return
@@ -148,7 +157,23 @@ async function loadFmSongs() {
 async function loadFmLyric(id) {
   try {
     const res = await getLyric(id)
-    lyricLines.value = parseLyric(res?.lrc?.lyric || '')
+    const lines = parseLyric(res?.lrc?.lyric || '')
+    const trans = parseLyric(res?.tlyric?.lyric || '')
+    const roma = parseLyric(res?.romalrc?.lyric || '')
+    // 网易云逐句翻译/罗马音时间戳与原文一致，按就近匹配（0.5s 内）合并到对应行
+    if (trans.length) {
+      for (const line of lines) {
+        const t = trans.find(tr => Math.abs(tr.time - line.time) < 0.5)
+        if (t) line.ttext = t.text
+      }
+    }
+    if (roma.length) {
+      for (const line of lines) {
+        const r = roma.find(rr => Math.abs(rr.time - line.time) < 0.5)
+        if (r) line.rtext = r.text
+      }
+    }
+    lyricLines.value = lines
   } catch (_) { lyricLines.value = [] }
 }
 
@@ -274,6 +299,12 @@ onUnmounted(() => {
             </div>
           </Transition>
 
+          <!-- 歌词显示开关（罗马音 ABC / 翻译 译，与主歌词页同款图标） -->
+          <div class="fm-lyric-toolbar">
+            <svg @click="showRoma = !showRoma" class="lyric-toggle" :class="{ off: !showRoma }" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><path fill="currentColor" d="M927.1 270.6c-19.9 0-36.1-16.2-36.1-36.1V83.7c0-6.2-5.2-11.5-11.5-11.5H144.6c-6.2 0-11.5 5.2-11.5 11.5v150.8c0 20-16.2 36.1-36.1 36.1s-36.1-16.2-36.1-36.1V83.7C60.9 37.5 98.5 0 144.6 0h734.9c46.1 0 83.7 37.5 83.7 83.7v150.8c0.1 20-16.1 36.1-36.1 36.1zM879.6 1024h-735c-46.1 0-83.7-37.5-83.7-83.7V732.7c0-20 16.2-36.1 36.1-36.1s36.1 16.2 36.1 36.1v207.6c0 6.2 5.2 11.5 11.5 11.5h734.9c6.2 0 11.5-5.2 11.5-11.5V732.7c0-20 16.2-36.1 36.1-36.1s36.1 16.2 36.1 36.1v207.6c0.1 46.2-37.5 83.7-83.6 83.7zM302.7 662.9c-7.7 0-14.6-2.4-20.8-7.1-6.2-4.8-10.3-10.8-12.4-18.3L254 579.6c-0.6-2.4-2-3.6-4.4-3.6H147.5c-2.1 0-3.4 1.2-4 3.6l-15.9 57.9c-2.1 7.4-6.1 13.5-12.2 18.3-6 4.8-12.9 7.1-20.6 7.1H79c-6.5 0-11.6-2.7-15.5-8-2.4-3.3-3.5-6.8-3.5-10.7 0-2.1 0.3-4.2 0.9-6.2l91.5-287.8c2.4-7.4 6.6-13.4 12.8-18s13.3-6.9 21.2-6.9H213c7.7 0 14.7 2.3 21 6.9s10.7 10.6 13.1 18L339 638c0.6 2.1 0.9 4.2 0.9 6.2 0 3.9-1.3 7.4-4 10.7-3.8 5.4-8.8 8-15 8h-18.2zM159.9 520.3c-0.3 0.9-0.2 1.7 0.2 2.5 0.4 0.7 1.1 1.1 2 1.1h73c0.9 0 1.6-0.4 2.2-1.1 0.6-0.7 0.7-1.6 0.4-2.5l-9.3-33.4c-3.8-13.4-9.1-33.2-15.9-59.5s-11.2-43-13.3-50.1c0-0.6-0.3-0.9-0.9-0.9-0.6 0-1 0.3-1.3 0.9-8.5 36.2-18 72.8-28.3 109.6l-8.8 33.4zM411.9 662.9c-7.1 0-13.2-2.6-18.3-7.8-5.2-5.2-7.7-11.4-7.7-18.5V351.5c0-7.1 2.6-13.3 7.7-18.5 5.2-5.2 11.3-7.8 18.3-7.8h84.9c80.8 0 121.2 27.8 121.2 83.3 0 15.7-4.1 30.4-12.2 44.1-8.1 13.7-18.8 23.2-32.1 28.5-0.9 0-1.3 0.4-1.3 1.3s0.3 1.3 0.9 1.3c18.9 4.8 33.9 13.8 45.1 27.2 11.2 13.4 16.8 30.9 16.8 52.6 0 32.7-11.9 57.4-35.8 74.2-23.9 16.8-55.1 25.2-93.7 25.2h-93.8z m41.2-203.6c0 2.1 1 3.1 3.1 3.1H492c20.6 0 36-3.9 46-11.6s15-18.6 15-32.5c0-14.5-4.9-25.1-14.8-31.6s-25-9.8-45.3-9.8h-36.7c-2 0-3.1 1-3.1 3.1v79.3z m0 148.4c0 2.1 1 3.1 3.1 3.1h43.3c47.2 0 70.7-17.1 70.7-51.2 0-16.3-5.9-28.2-17.7-35.6-11.8-7.4-29.5-11.1-53.1-11.1h-43.3c-2 0-3.1 1.2-3.1 3.6v91.2h0.1zM830.7 669.1c-21.2 0-41-3.8-59.5-11.4-18.4-7.6-34.6-18.6-48.6-33s-25.1-32.7-33.2-54.8c-8.1-22.1-12.2-47-12.2-74.6 0-27 4.1-51.8 12.4-74.2 8.3-22.4 19.5-41.1 33.8-55.9 14.3-14.9 30.9-26.3 49.7-34.3 18.9-8 38.9-12 60.1-12 28.3 0 54.4 8.8 78.3 26.3 6.5 4.5 9.7 11 9.7 19.6 0 6.5-2.2 12.5-6.6 17.8l-1.8 2.2c-4.4 5.3-10.3 8.3-17.7 8.9h-2.7c-6.2 0-11.8-1.6-16.8-4.9-13-8-26.7-12-41.1-12-25.9 0-47.2 10.5-63.9 31.4s-25 49.2-25 84.9c0 36.5 7.9 65.3 23.7 86.2s37 31.4 63.9 31.4c17.7 0 34.2-5.3 49.5-16 5-3.6 10.7-5.3 17.2-5.3h1.8c7.1 0.3 12.8 3.1 17.2 8.5l1.8 1.8c4.7 5.4 7.1 11.6 7.1 18.7 0 8.3-2.9 14.9-8.8 19.6-24.7 20.8-54.1 31.1-88.3 31.1z"/></svg>
+            <svg @click="showTrans = !showTrans" class="lyric-toggle" :class="{ off: !showTrans }" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><path fill="currentColor" d="M128 64c-35.345655 0-64 28.654345-64 64v768c0 35.345655 28.654345 64 64 64h768c35.345655 0 64-28.654345 64-64v-768c0-35.345655-28.654345-64-64-64h-768z m0-64h768C966.692487 0 1024 57.307513 1024 128v768C1024 966.692487 966.692487 1024 896 1024h-768C57.307513 1024 0 966.692487 0 896v-768C0 57.307513 57.307513 0 128 0z m329.143025 251.428487h301.715127v68.571513c-18.020046 27.895172-58.368 67.967706-96.000589 96.000589 24.064 8.704 69.777949 13.274336 137.143026 13.71336l-13.714538 68.57269c-63.360883-7.297471-123.483807-31.818152-164.572102-54.858152-43.775411 21.120294-101.211218 41.41668-164.570924 54.856975l-27.429076-68.571513c56.378851-8.492138 100.279025-12.452782 137.143026-27.427898-28.031706-24.960883-54.747513-45.038345-68.571513-82.286051h-41.142437v-68.571513z m114.85749 68.571513c12.288 25.728294 22.271411 41.183632 47.998529 60.000515 31.873471-19.969177 45.072478-35.424515 60.048772-60.000515h-108.047301zM512 512h68.571513v-41.142437h68.556211V512h68.586814v68.571513h-68.586814v41.142436h109.729251v68.57269h-109.729251v109.712772H580.57269v-109.713949h-109.71395v-68.571513h109.71395V580.57269H512V512zM306.285462 223.999411c34.286345 22.113692 81.117278 54.858152 109.713949 82.286051l-54.856974 68.57269c-21.504-26.113177-54.527411-65.665471-95.999412-96.000589l41.142437-54.856974z m137.157149 397.714538v54.856975c-56.437701 53.431614-97.586023 90.002538-123.442611 109.715127l-36.000074-58.28561c10.752-9.600883 22.285536-25.042097 22.285536-37.714979V470.857563h-82.284873v-68.572689h150.857563V662.857563c28.631982-9.103007 51.494253-22.817545 68.584459-41.143614z"/></svg>
+          </div>
+
           <!-- 歌词：整条轨道随进度上滚，当前行停在高亮条处 -->
           <div class="fm-lyric-list" ref="lyricViewport">
             <div class="lyric-track" :style="{ transform: `translateY(${trackOffset}px)` }">
@@ -283,7 +314,7 @@ onUnmounted(() => {
                 class="lyric-line"
                 :class="{ on: idx === currentLyricIdx }"
                 :style="lyricLineStyle(idx)"
-              ><span class="lyric-text">{{ line.text }}</span></p>
+              ><span class="lyric-rtext" v-if="showRoma && line.rtext">{{ line.rtext }}</span><span class="lyric-text">{{ line.text }}</span><span class="lyric-ttext" v-if="showTrans && line.ttext">{{ line.ttext }}</span></p>
             </div>
           </div>
         </div>
@@ -516,6 +547,24 @@ onUnmounted(() => {
   }
 }
 
+  .fm-lyric-toolbar {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: row;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 1.8vh;
+    margin-top: 1.2vh;
+    .lyric-toggle {
+      width: 2.2vh;
+      height: 2.2vh;
+      color: #1a1a1a;
+      cursor: pointer;
+      transition: 0.2s;
+      &:hover { opacity: 0.6; }
+      &.off { color: rgba(26, 26, 26, 0.28); }
+    }
+  }
 /* 歌词：整条轨道随进度平滑上滚，当前行停在黑条处；
    离当前行越远越模糊，切换按行距级联延迟（与全屏歌词页同款） */
 .fm-lyric-list {
@@ -539,9 +588,7 @@ onUnmounted(() => {
     color: rgba(26, 26, 26, 0.55);
     padding: 0.7vh 1.4vh;
     margin: 0 0 1.6vh 0;
-    white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
     &::before {
       content: '';
       position: absolute;
@@ -552,14 +599,27 @@ onUnmounted(() => {
       transition: transform 0.35s cubic-bezier(0.3, 0.79, 0.55, 0.99);
       transition-delay: var(--d, 0s);
     }
-    .lyric-text {
+    .lyric-text, .lyric-rtext, .lyric-ttext {
       position: relative;
       z-index: 1;
+      display: block;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
       transition: color 0.3s, filter 0.3s;
       transition-delay: var(--d, 0s);
     }
+    .lyric-rtext {
+      font-size: 1.5vh;
+      margin-bottom: 0.3vh;
+    }
+    .lyric-ttext {
+      font-size: 1.5vh;
+      margin-top: 0.3vh;
+    }
     &.on {
-      .lyric-text { color: #fff; }
+      .lyric-text, .lyric-rtext, .lyric-ttext { color: #fff; }
+      .lyric-ttext, .lyric-rtext { opacity: 0.85; }
       &::before { transform: scaleX(1); }
     }
   }

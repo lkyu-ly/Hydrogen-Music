@@ -1,7 +1,7 @@
 {
   "name": "hydrogenmusic",
   "private": true,
-  "version": "0.1.9a",
+  "version": "0.1.9b",
   "main": "background.js",
   "author": "Kaidesuyo",
   "contributors": [

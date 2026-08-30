@@ -1,5 +1,5 @@
 <script setup>
-  import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
+  import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
   import { useRouter, useRoute } from 'vue-router';
   import { logout } from '../api/user'
   import { noticeOpen } from "../utils/dialog";
@@ -18,19 +18,20 @@
     nextTick(() => {
       const headerRouter = document.querySelector('.header-router')
       // 导航整体尽量按窗口居中；窗口较窄时向右偏移刚好避开左侧悬浮层
-      // （logo+搜索框，聚焦展开后约 365Px，预留 380），且不进入右侧窗口控制按钮区（约 110Px）
+      // （logo+搜索框，聚焦展开后约 365Px，预留 380），且不进入右侧窗口控制按钮区（约 190Px，含头像外挂）
+      // 注意：偏移用 left 而非 transform——transform 会在 .header-router 上创建层叠上下文，
+      // 把 .user（z-9999）关押在内，导致设置下拉被页面内容遮挡
       if (headerRouter) {
         const winWidth = window.innerWidth
         const routerWidth = headerRouter.getBoundingClientRect().width
         if (routerWidth > 0) {
           const desiredLeft = (winWidth - routerWidth) / 2
           const minLeft = 380
-          // 头像相对导航盒右侧外挂约 60Px（right:-35px + 25px 宽），需一并避开窗口控制按钮
           const maxRight = winWidth - 190
           let offset = 0
           if (desiredLeft < minLeft) offset = minLeft - desiredLeft
           if (desiredLeft + offset + routerWidth > maxRight) offset = maxRight - routerWidth - desiredLeft
-          headerRouter.style.transform = offset > 0 ? `translateX(${offset}px)` : ''
+          headerRouter.style.left = offset > 0 ? `${offset}px` : ''
         }
       }
 
@@ -66,6 +67,21 @@
   })
   onBeforeUnmount(() => {
     window.removeEventListener('resize', updateTracker)
+  })
+
+  // 首次启动时自定义字体可能尚未加载，按钮宽度按回退字体测量会导致下划线偏移；
+  // 字体加载完成后与短延时兜底各校准一次
+  if (document.fonts) document.fonts.ready.then(() => updateTracker())
+  setTimeout(updateTracker, 600)
+
+  // 页面切换动画：按导航序（首页→云盘→心动→识曲→我的音乐→搜索→设置）决定水平滑动方向
+  const routeOrder = { login: -1, homepage: 0, clouddisk: 1, heartbeat: 2, audiomatch: 3, mymusic: 4, search: 5, settings: 6 }
+  let prevRouteName = null
+  watch(() => route.name, (to, from) => { prevRouteName = from })
+  const pageTransition = computed(() => {
+    const to = routeOrder[route.name] ?? 0
+    const from = routeOrder[prevRouteName] ?? 0
+    return from > to ? 'page-nav-left' : 'page-nav-right'
   })
 
   const toSettings = () => {
@@ -134,10 +150,12 @@
       </div>
       
       <div class="home-content">
-        <router-view  v-slot="{ Component }">
-          <keep-alive>
-            <component :is="Component"></component>
-          </keep-alive>
+        <router-view v-slot="{ Component }">
+          <Transition :name="pageTransition" mode="out-in">
+            <keep-alive>
+              <component :is="Component"></component>
+            </keep-alive>
+          </Transition>
         </router-view>
       </div>
     </main>
@@ -159,6 +177,9 @@
 
   .home-header{
     margin: 30px 0 20px 0;
+    /* 独立层级：保证头像/设置下拉（.user z-9999）永远压过页面内容 */
+    position: relative;
+    z-index: 10;
     display: flex;
     flex-direction: row;
     justify-content: center;
@@ -194,7 +215,8 @@
         top: 50%;
         right: -35px;
         transform: translateY(-50%);
-        z-index: 999;
+        /* 头像/设置下拉需要压过所有页面内容（mainWindow__content 的 container-type 会创建层叠上下文） */
+        z-index: 9999;
         .user-container{
           width: 25px;
           height: 25px;
@@ -302,6 +324,7 @@
     padding: 0 45px;
     height: calc(100% + 1px);
     overflow: auto;
+    overflow-x: hidden;
     &::-webkit-scrollbar{
       display: none;
     }

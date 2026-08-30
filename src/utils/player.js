@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import { noticeOpen } from './dialog'
 import { isHydrogenWeb, getBiliCookieForApi } from './webProfileNas'
 import { checkMusic, getMusicUrl, likeMusic, getLyric } from '../api/song'
+import { getCloudLyric } from '../api/cloud'
 import { getLikelist } from '../api/user'
 import { useUserStore } from '../store/userStore'
 import { usePlayerStore } from '../store/playerStore'
@@ -310,6 +311,20 @@ export function setSongToWindows() {
         return
     }
 }
+// 歌词加载：云盘歌曲（id ≥ 8e8）无歌词时回退到云盘歌词接口
+function loadLyric(id) {
+    getLyric(id).then(songLiric => {
+        if (songLiric?.lrc?.lyric || id < 800000000 || !userStore.user) {
+            lyric.value = songLiric
+            return
+        }
+        getCloudLyric({ uid: userStore.user.userId, sid: id }).then(res => {
+            const lrc = res?.data?.lyric || res?.lyric || ''
+            lyric.value = lrc ? { lrc: { lyric: lrc } } : songLiric
+        }).catch(() => { lyric.value = songLiric })
+    }).catch(() => {})
+}
+
 export async function getSongUrl(id, index, autoplay, isLocal) {
     const cur = (songList.value || [])[currentIndex.value]
     if(cur) windowApi.setWindowTile(cur.name + " - " + (cur.ar?.[0]?.name || ''))
@@ -345,9 +360,7 @@ export async function getSongUrl(id, index, autoplay, isLocal) {
                     skipUnplayable('当前歌曲无法播放')
                 }
             }).catch(() => skipUnplayable('当前歌曲无法播放'))
-            getLyric(id).then(songLiric => {
-                lyric.value = songLiric
-            }).catch(() => {})
+            loadLyric(id)
         } else if (unblockOn) {
             getMusicUrl(id, quality.value).then(async songInfo => {
                 if (songInfo.data[0].url) {
@@ -401,9 +414,7 @@ export async function getSongUrl(id, index, autoplay, isLocal) {
                     skipUnplayable('当前歌曲无法播放')
                 }
             })
-            getLyric(id).then(songLiric => {
-                lyric.value = songLiric
-            }).catch(() => {})
+            loadLyric(id)
         } else {
             skipUnplayable('当前歌曲无法播放')
         }

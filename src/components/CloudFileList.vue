@@ -18,6 +18,14 @@
 
   const selectedSongs = ref([])
 
+  // 滚动到底部附近时通知父组件加载下一页（云盘分页）
+  const emit = defineEmits(['loadMore'])
+  const props = defineProps(['hasMore', 'loadingMore'])
+  const onListScroll = (e) => {
+    const el = e.target
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 80) emit('loadMore')
+  }
+
   function fileEdit(song) {
     let findIndex = (selectedSongs.value || []).findIndex((item) => item.id == song.id)
     if(findIndex == -1) {
@@ -34,26 +42,19 @@
     clearSelect()
   }
   const deleteFile = (flag) => {
-    if(flag) {
-        let ids = ''
-        selectedSongs.value.forEach(song => {
-            ids += song.id + ','
-        });
-        ids = ids.substring(0, ids.length - 1)
-        let params = {
-            id: ids
+    // 未选中任何歌曲时不发起删除请求
+    if (!flag || !selectedSongs.value.length) return
+    const ids = selectedSongs.value.map(item => item.id).join(',')
+    const deleteIds = selectedSongs.value.map(item => item.id)
+    deleteCloudSong({ id: ids }).then(result => {
+        if(result.code == 200) {
+            cloudStore.removeByIds(deleteIds)
+            selectedSongs.value = []
+            noticeOpen("删除成功", 2)
+        } else {
+            noticeOpen("删除失败", 2)
         }
-        deleteCloudSong(params).then(result => {
-            if(result.code == 200) {
-                selectedSongs.value.forEach(item => {
-                    cloudSongs.value.splice((cloudSongs.value || []).findIndex((song) => song.simpleSong.id == item.id), 1)
-                });
-                selectedSongs.value = []
-            } else {
-                noticeOpen("删除失败", 2)
-            }
-        })
-    }
+    }).catch(() => noticeOpen("删除失败", 2))
   }
   const deleteFileConfirm = () => {
     dialogOpen('确认删除', '您确定要从云盘中删除歌曲吗？', deleteFile)
@@ -75,7 +76,7 @@
 
 <template>
   <div class="file-container">
-    <div class="file-list" :class="{'file-list-selected': selectedSongs.length != 0}">
+    <div class="file-list" :class="{'file-list-selected': selectedSongs.length != 0}" @scroll="onListScroll">
         <div class="list-item" @dblclick="play(item.simpleSong.id, index)" v-for="(item, index) in cloudSongs" :key="index">
             <div class="item-info">
                 <div class="item-img" @click="fileEdit(item.simpleSong)">
@@ -95,6 +96,7 @@
                 <svg t="1671452723182" class="icon" viewBox="0 0 1498 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="1965" width="200" height="200"><path d="M618.396098 1024L0 403.605854l140.862439-141.861464 477.533659 479.531708L1357.674146 0 1498.536585 140.862439l-880.140487 883.137561z" p-id="1966" fill="#ffffff"></path></svg>
             </div>
         </div>
+        <div class="load-more-hint" v-if="hasMore || loadingMore">{{ loadingMore ? '加载中...' : '上滑加载更多' }}</div>
     </div>
     <div class="file-edit" :class="{'file-edit-selected': selectedSongs.length != 0}">
         <div class="edit-item" @click="clearSelect()">
@@ -114,6 +116,12 @@
 </template>
 
 <style scoped lang="scss">
+  .load-more-hint{
+    text-align: center;
+    padding: 14Px 0 20Px;
+    font: 12Px SourceHanSansCN-Bold;
+    color: rgb(120, 120, 120);
+  }
   .file-container{
     height: 100%;
     display: flex;

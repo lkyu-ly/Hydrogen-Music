@@ -59,3 +59,35 @@ button:focus-visible {
 #app {
   text-align: center;
 }
+/* ===== 页面切换：明日方舟官网同款线性级联 ===== */
+.page-nav-right-leave-active,
+.page-nav-left-leave-active {
+  transition: opacity 0.26s ease, transform 0.26s ease;
+}
+.page-nav-right-enter-active,
+.page-nav-left-enter-active {
+  transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.22, 0.9, 0.32, 1);
+}
+.page-nav-right-leave-to { opacity: 0; transform: translateX(-36px); }
+.page-nav-left-leave-to { opacity: 0; transform: translateX(36px); }
+.page-nav-right-enter-from { opacity: 0; transform: translateX(46px); }
+.page-nav-left-enter-from { opacity: 0; transform: translateX(-46px); }
+
+/* 进场页面的直接子元素按序级联滑入（stagger：每行比上一行晚 0.07s） */
+.page-nav-right-enter-active > *,
+.page-nav-left-enter-active > * {
+  animation: page-cascade-in 0.5s cubic-bezier(0.22, 0.9, 0.32, 1) both;
+}
+.page-nav-right-enter-active > *:nth-child(2),
+.page-nav-left-enter-active > *:nth-child(2) { animation-delay: 0.07s; }
+.page-nav-right-enter-active > *:nth-child(3),
+.page-nav-left-enter-active > *:nth-child(3) { animation-delay: 0.14s; }
+.page-nav-right-enter-active > *:nth-child(4),
+.page-nav-left-enter-active > *:nth-child(4) { animation-delay: 0.21s; }
+.page-nav-right-enter-active > *:nth-child(5),
+.page-nav-left-enter-active > *:nth-child(5) { animation-delay: 0.28s; }
+.page-nav-right-enter-active > *:nth-child(n+6),
+.page-nav-left-enter-active > *:nth-child(n+6) { animation-delay: 0.35s; }
+@keyframes page-cascade-in {
+  from { opacity: 0; transform: translateX(28px); }
+}

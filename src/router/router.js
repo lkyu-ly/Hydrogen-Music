@@ -13,6 +13,7 @@ import SearchResult from '../views/SearchResult.vue'
 import Settings from '../views/Settings.vue'
 import AudioMatch from '../views/AudioMatch.vue'
 import Heartbeat from '../views/Heartbeat.vue'
+import TopList from '../views/TopList.vue'
 
 import { useUserStore } from '../store/userStore'
 import { useLibraryStore } from '../store/libraryStore'
@@ -178,6 +179,15 @@ const routes = [
         beforeEnter: (to, from, next) => {
             if(!userStore.heartbeatPage) next({name: 'mymusic'})
             else if(!isLogin()) { next({name: 'login'}); noticeOpen("请先登录", 2) }
+            else next()
+        }
+    },
+    {
+        path: '/toplist',
+        name: 'toplist',
+        component: TopList,
+        beforeEnter: (to, from, next) => {
+            if(!userStore.toplistPage) next({name: 'mymusic'})
             else next()
         }
     },

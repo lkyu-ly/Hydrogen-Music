@@ -8,7 +8,6 @@
     <RecListItem recType="0" class="list-item"></RecListItem>
     <RecListItem recType="1" class="list-item"></RecListItem>
     <RecListItem recType="2" class="list-item"></RecListItem>
-    <RecListItem recType="3" class="list-item"></RecListItem>
   </div>
 </template>
 

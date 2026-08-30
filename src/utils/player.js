@@ -18,7 +18,7 @@ const userStore = useUserStore()
 const libraryStore = useLibraryStore(pinia)
 const playerStore = usePlayerStore(pinia)
 const { libraryInfo } = storeToRefs(libraryStore)
-const { currentMusic, playing, progress, volume, quality, playMode, songList, shuffledList, shuffleIndex, listInfo, songId, currentIndex, time, playlistWidgetShow, playerChangeSong, lyric, lyricsObjArr, lyricShow, lyricEle, isLyricDelay, widgetState, localBase64Img, musicVideo, currentMusicVideo, musicVideoDOM, videoIsPlaying, playerShow, lyricBlur, coverUrl} = storeToRefs(playerStore)
+const { currentMusic, playing, progress, volume, playRate, quality, playMode, songList, shuffledList, shuffleIndex, listInfo, songId, currentIndex, time, playlistWidgetShow, playerChangeSong, lyric, lyricsObjArr, lyricShow, lyricEle, isLyricDelay, widgetState, localBase64Img, musicVideo, currentMusicVideo, musicVideoDOM, videoIsPlaying, playerShow, lyricBlur, coverUrl} = storeToRefs(playerStore)
 
 let isProgress = false
 let musicProgress = null
@@ -84,6 +84,7 @@ export function play(url, autoplay) {
         format: ['mp3', 'flac'],
         loop: (playMode.value == 2),
         volume: volume.value,
+        rate: playRate.value || 1,
         xhr: {
             method: 'GET',
             withCredentials: true,
@@ -682,6 +683,45 @@ export function songTime2(time) {
     if(sec < 10) sec = '0' + sec
     return min + ':' + sec
 }
+// 睡眠定时器：倒计时结束后淡出并暂停
+let sleepTimer = null
+let sleepDeadline = null
+export function setSleepTimer(minutes) {
+    clearTimeout(sleepTimer)
+    if (!minutes) {
+        sleepDeadline = null
+        noticeOpen('睡眠定时已取消', 2)
+        return
+    }
+    sleepDeadline = Date.now() + minutes * 60 * 1000
+    noticeOpen(`将在 ${minutes} 分钟后停止播放`, 2)
+    sleepTimer = setTimeout(() => {
+        sleepDeadline = null
+        if (currentMusic.value && playing.value) {
+            currentMusic.value.fade(volume.value, 0, 3000)
+            setTimeout(() => {
+                pauseMusic()
+                if (currentMusic.value) currentMusic.value.volume(volume.value)
+            }, 3200)
+        }
+        noticeOpen('睡眠定时已到，停止播放', 2)
+    }, minutes * 60 * 1000)
+}
+export function cancelSleepTimer() {
+    clearTimeout(sleepTimer)
+    sleepDeadline = null
+}
+export function sleepTimerRemain() {
+    return sleepDeadline ? Math.max(0, sleepDeadline - Date.now()) : null
+}
+
+// 倍速播放
+export function setPlayRate(rate) {
+    playRate.value = rate
+    if (currentMusic.value) currentMusic.value.rate(rate)
+    noticeOpen(`播放速度 ${rate}x`, 2)
+}
+
 /**
  * 音乐视频监测
  */

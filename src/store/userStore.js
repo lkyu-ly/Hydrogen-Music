@@ -12,6 +12,7 @@ export const useUserStore = defineStore('userStore', {
             cloudDiskPage: true,
             audioMatchPage: true,
             heartbeatPage: true,
+            toplistPage: true,
         }
     },
     actions: {
@@ -21,6 +22,6 @@ export const useUserStore = defineStore('userStore', {
     },
     persist: {
         storage: localStorage,
-        paths: ['user','biliUser','homePage','cloudDiskPage','audioMatchPage','heartbeatPage']
+        paths: ['user','biliUser','homePage','cloudDiskPage','audioMatchPage','heartbeatPage','toplistPage']
     },
 })

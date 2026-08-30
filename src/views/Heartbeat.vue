@@ -2,7 +2,8 @@
 import { ref, computed, onMounted, onUnmounted, onActivated, watch, nextTick } from 'vue'
 import VueSlider from 'vue-slider-component'
 import '../assets/css/slider.css'
-import { getPersonalFM, getLyric } from '../api/song'
+import { getPersonalFM, getLyric, fmTrash } from '../api/song'
+import SleepTimer from '../components/SleepTimer.vue'
 import { addToList, addSong, pauseMusic, startMusic, changeProgress, changeProgressByDragStart, changeProgressByDragEnd, likeSong, songTime2 } from '../utils/player'
 import { noticeOpen } from '../utils/dialog'
 import { usePlayerStore } from '../store/playerStore'
@@ -205,6 +206,19 @@ function prevFm() {
   }
 }
 
+// 不感兴趣：移入 FM 垃圾桶并自动切下一首
+function trashCurrent() {
+  const song = currentFmSong.value
+  if (!song) return
+  fmTrash(song.id).then(() => {
+    noticeOpen('已加入不感兴趣，将不再推荐', 2)
+    nextFm()
+  }).catch(() => {
+    noticeOpen('操作失败，跳过当前歌曲', 2)
+    nextFm()
+  })
+}
+
 // 进度条：点击/拖拽定位（仅当 FM 歌曲是正在播放的歌时可用）
 const progressEl = ref(null)
 let seeking = false
@@ -338,6 +352,7 @@ onUnmounted(() => {
             </div>
           </div>
         </div>
+        <SleepTimer class="fm-sleep"></SleepTimer>
         <div class="fm-controls">
           <!-- 上一首 -->
           <svg @click="prevFm" :class="{ off: fmHistory.length === 0 }" class="ctrl" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="p0" x="0" y="0" width="200" height="200"/></defs><g transform="translate(0 0) rotate(0 100 100)"><mask id="m0" fill="white"><use xlink:href="#p0"/></mask><g mask="url(#m0)"><path style="stroke:currentColor;stroke-width:10" transform="translate(35 44) rotate(-90 67 53)" d="M133.6,106L66.8,0L0,106"/></g></g></svg>
@@ -349,6 +364,8 @@ onUnmounted(() => {
           <svg @click="nextFm" :class="{ off: loading }" class="ctrl" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="p2" x="0" y="0" width="200" height="200"/></defs><g transform="translate(0 0) rotate(0 100 100)"><mask id="m2" fill="white"><use xlink:href="#p2"/></mask><g mask="url(#m2)"><path style="stroke:currentColor;stroke-width:10" transform="translate(35 44) rotate(90 67 53)" d="M133.6,106L66.8,0L0,106"/></g></g></svg>
           <!-- 喜欢：始终显示，作用于当前 FM 歌曲 -->
           <svg v-if="userStore.likelist" @click="likeSong(!checkIsLike(currentFmSong.id), currentFmSong.id)" class="ctrl ctrl-like" :class="{ liked: checkIsLike(currentFmSong.id) }" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="200" height="200"><path fill="currentColor" d="M736.603 35.674c-87.909 0-169.647 44.1-223.447 116.819C459.387 79.756 377.665 35.674 289.708 35.674c-158.47 0-287.397 140.958-287.397 314.233 0 103.371 46.177 175.887 83.296 234.151 107.88 169.236 379.126 379.846 390.616 388.725 11.068 8.557 24.007 12.837 36.917 12.837 12.939 0 25.861-4.28 36.917-12.837 11.503-8.879 282.765-219.488 390.614-388.725C977.808 525.793 1024 453.277 1024 349.907 1023.999 176.632 895.071 35.674 736.603 35.674z"/></svg>
+          <!-- 不感兴趣：移入 FM 垃圾桶并跳下一首 -->
+          <svg @click="trashCurrent()" class="ctrl" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><path fill="currentColor" d="M512 64c-70.7 0-128 57.3-128 128H213.3c-47.1 0-85.3 38.2-85.3 85.3h768c0-47.1-38.2-85.3-85.3-85.3H640c0-70.7-57.3-128-128-128z m170.7 298.7v512H341.3v-512h-85.3v512c0 47.1 38.2 85.3 85.3 85.3h341.4c47.1 0 85.3-38.2 85.3-85.3v-512h-85.3z m-277.4 85.3h42.7v341.3h-42.7V448z m128 0h42.7v341.3h-42.7V448z m128 0h42.7v341.3h-42.7V448z"/></svg>
         </div>
       </div>
     </div>
@@ -414,7 +431,7 @@ onUnmounted(() => {
     }
   }
   .loading-text {
-    font: 1.6vh 'Bender-Bold', monospace;
+    font-size: 1.6vh; font-weight: bold;
     letter-spacing: 0.6vh;
     color: rgba(26, 26, 26, 0.4);
   }
@@ -431,7 +448,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 2vw;
   .fm-tag {
-    font: 1.8vh 'Gilroy-ExtraBold', Arial, sans-serif;
+    font-size: 1.8vh; font-weight: bold;
     letter-spacing: 0.35vh;
     color: #1a1a1a;
     white-space: nowrap;
@@ -443,7 +460,7 @@ onUnmounted(() => {
     border-top: 2Px dotted rgba(0, 0, 0, 0.25);
   }
   .fm-count {
-    font: 1.6vh 'Bender-Bold', monospace;
+    font-size: 1.6vh; font-weight: bold;
     letter-spacing: 0.3vh;
     color: rgba(26, 26, 26, 0.45);
     white-space: nowrap;
@@ -511,7 +528,7 @@ onUnmounted(() => {
   flex-shrink: 0;
   .fm-name {
     text-align: left;
-    font: 3.8vh/1.15 'SourceHanSansCN-Bold';
+    font-size: 3.8vh; line-height: 1.15; font-weight: bold;
     letter-spacing: 0.12vh;
     color: #1a1a1a;
     overflow: hidden;
@@ -526,13 +543,13 @@ onUnmounted(() => {
     white-space: nowrap;
     text-align: left;
     .fm-artist {
-      font: 1.9vh 'SourceHanSansCN-Bold';
+      font-size: 1.9vh; font-weight: bold;
       color: rgba(26, 26, 26, 0.6);
       flex-shrink: 0;
     }
     .fm-album {
       margin-left: 1.6vh;
-      font: 1.6vh 'SourceHanSansCN-Bold';
+      font-size: 1.6vh; font-weight: bold;
       color: rgba(26, 26, 26, 0.32);
       overflow: hidden;
       text-overflow: ellipsis;
@@ -584,7 +601,7 @@ onUnmounted(() => {
   .lyric-line {
     position: relative;
     text-align: left;
-    font: 2vh 'SourceHanSansCN-Bold';
+    font-size: 2vh; font-weight: bold;
     color: rgba(26, 26, 26, 0.55);
     padding: 0.7vh 1.4vh;
     margin: 0 0 1.6vh 0;
@@ -635,7 +652,7 @@ onUnmounted(() => {
   gap: 2vw;
 
   .fm-timecode {
-    font: 1.7vh 'Bender-Bold', monospace;
+    font-size: 1.7vh; font-weight: bold;
     letter-spacing: 0.18vh;
     color: rgba(26, 26, 26, 0.8);
     white-space: nowrap;
@@ -698,6 +715,8 @@ onUnmounted(() => {
     }
   }
 
+  .fm-sleep { flex-shrink: 0; }
+
   .fm-controls {
     flex-shrink: 0;
     display: flex;
@@ -725,7 +744,7 @@ onUnmounted(() => {
   position: absolute;
   left: 3.5vw;
   bottom: 1.4vh;
-  font: 1.7vh 'Gilroy-ExtraBold', Arial, sans-serif;
+  font-size: 1.7vh; font-weight: bold;
   letter-spacing: 1vw;
   color: rgba(0, 0, 0, 0.1);
   pointer-events: none;

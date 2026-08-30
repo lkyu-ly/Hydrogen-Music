@@ -1,8 +1,8 @@
 <script setup>
+  import { ref } from 'vue'
   import { RecycleScroller } from 'vue-virtual-scroller'
   import 'vue-virtual-scroller/dist/vue-virtual-scroller.css'
-  import { pauseMusic } from '../utils/player';
-  import { addSong, setShuffledList } from '../utils/player'
+  import { pauseMusic, addSong, setShuffledList, savePlaylist } from '../utils/player'
   import { useRouter } from 'vue-router';
   import { usePlayerStore } from '../store/playerStore'
   import { storeToRefs } from 'pinia'
@@ -87,6 +87,37 @@
     document.getElementsByClassName('playlist-widget-item')[0].scrollTo({top: currentIndex.value * 37,behavior: 'smooth'})
     document.getElementsByClassName('playlist-widget-item')[1].scrollTo({top: currentIndex.value * 37,behavior: 'smooth'})
   }
+
+  // 拖拽排序：按放置目标位置重排播放列表，并同步当前索引与随机队列
+  const dragFromIndex = ref(null)
+  const onDragStart = (index) => { dragFromIndex.value = index }
+  const onDrop = (targetIndex) => {
+    const from = dragFromIndex.value
+    dragFromIndex.value = null
+    if (from == null || from === targetIndex) return
+    const list = [...(songList.value || [])]
+    if (!list[targetIndex]) return
+    const moved = list.splice(from, 1)[0]
+    if (!moved) return
+    list.splice(targetIndex, 0, moved)
+    songList.value = list
+    currentIndex.value = Math.max(0, list.findIndex(s => s.id === songId.value))
+    if (playMode.value == 3 && shuffledList.value) {
+      const sl = [...shuffledList.value]
+      const sFrom = sl.findIndex(s => s.id === moved.id)
+      if (sFrom != -1) {
+        sl.splice(sFrom, 1)
+        const anchorId = list[targetIndex] ? list[targetIndex].id : null
+        let sTo = anchorId ? sl.findIndex(s => s.id === anchorId) : sl.length
+        if (sTo == -1) sTo = sl.length
+        sl.splice(sTo, 0, moved)
+        shuffledList.value = sl
+        const si = sl.findIndex(s => s.id === songId.value)
+        shuffleIndex.value = si == -1 ? 0 : si
+      }
+    }
+    savePlaylist()
+  }
 </script>
 
 <template>
@@ -109,7 +140,7 @@
         key-field="id"
         v-slot="{ item, index }"
       >
-        <div class="list-item" :class="{'list-item-playing': songId == item.id}" @dblclick="play(item.id, index)">
+        <div class="list-item" :class="{'list-item-playing': songId == item.id, 'list-item-dragging': dragFromIndex === index}" @dblclick="play(item.id, index)" draggable="true" @dragstart="onDragStart(index)" @dragover.prevent @drop.prevent="onDrop(index)" @dragend="dragFromIndex = null">
           <div class="item-info">
             <svg v-show="(songId == item.id)" t="1669115475194" class="playing-icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="10562" width="200" height="200"><path d="M158.249961 614.402466c37.219322 0 67.372153 30.559802 67.372153 68.272422v273.065023c0 37.700288-30.152831 68.260089-67.372153 68.260089S90.865475 993.440198 90.865475 955.739911V682.674888a68.753387 68.753387 0 0 1 19.731914-48.269194 66.977515 66.977515 0 0 1 47.652572-20.003228zM394.083329 0.04933c37.20699 0 67.372153 30.572134 67.372153 68.272422v887.418159c0 37.700288-30.165163 68.260089-67.372153 68.260089s-67.322823-30.559802-67.322824-68.260089V68.272422c0-37.700288 30.103501-68.223092 67.322824-68.223092zM629.916696 273.077355c37.20699 0 67.384486 30.559802 67.384486 68.260089v614.402467c0 37.700288-30.177496 68.260089-67.384486 68.260089s-67.384486-30.559802-67.384486-68.260089v-614.402467c0-37.700288 30.165163-68.260089 67.384486-68.260089z m235.833368-136.544844a66.878855 66.878855 0 0 1 47.640239 20.003228 68.704057 68.704057 0 0 1 19.731914 48.269194v750.934978c0 37.700288-30.177496 68.260089-67.384486 68.260089s-67.384486-30.559802-67.384486-68.260089V204.767936a68.753387 68.753387 0 0 1 19.731914-48.269195 66.928185 66.928185 0 0 1 47.652572-20.003227z m0 0" p-id="10563"></path></svg>
             <span class="item-name">{{item.name  || item.localName}}</span>
@@ -198,8 +229,13 @@
         justify-content: space-between;
         align-items: center;
         transition: 0.2s;
+        cursor: grab;
+        &:active{ cursor: grabbing; }
         &:hover{
             background-color: rgba(0, 0, 0, 0.045);
+        }
+        &.list-item-dragging{
+            opacity: 0.35;
         }
         .item-info{
           width: 240Px;

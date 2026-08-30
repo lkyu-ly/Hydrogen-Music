@@ -4,7 +4,8 @@
   import { songTime2 } from '../utils/player';
   import VueSlider from 'vue-slider-component'
   import PlayList from './PlayList.vue'
-  import { startMusic, pauseMusic, playLast, playNext, changeProgress, changePlayMode, likeSong } from '../utils/player'
+  import { startMusic, pauseMusic, playLast, playNext, changeProgress, changePlayMode, likeSong, setPlayRate } from '../utils/player'
+  import SleepTimer from './SleepTimer.vue'
   import { useUserStore } from '../store/userStore'
   import { usePlayerStore } from '../store/playerStore'
   import { useLocalStore } from '../store/localStore';
@@ -21,11 +22,19 @@
     },
   })
 
-  const { currentMusic, playing, progress, volume, playMode, currentIndex, songList, songId, widgetState, lyricShow, lyricType, playlistWidgetShow, time, playerChangeSong, localBase64Img, musicVideo, addMusicVideo, videoIsPlaying, playerShow, coverBlur } = storeToRefs(playerStore)
+  const { currentMusic, playing, progress, volume, playRate, playMode, currentIndex, songList, songId, widgetState, lyricShow, lyricType, playlistWidgetShow, time, playerChangeSong, localBase64Img, musicVideo, addMusicVideo, videoIsPlaying, playerShow, coverBlur } = storeToRefs(playerStore)
 
   const checkIsLike = computed(() => (id) => {
     return userStore.likelist.includes(id)
   })
+
+  // 倍速循环切换：1 → 1.25 → 1.5 → 2 → 0.5 → 0.75 → 1
+  const rateCycle = [1, 1.25, 1.5, 2, 0.5, 0.75]
+  const cycleRate = () => {
+    const current = Number(playRate.value) || 1
+    const i = rateCycle.indexOf(current)
+    setPlayRate(rateCycle[(i + 1) % rateCycle.length])
+  }
 
   // 全屏播放器的音量滑条也需要实际作用于 Howl 实例（迷你条卸载后无人监听 volume）
   watch(() => volume.value, () => {
@@ -135,6 +144,7 @@
                 <svg v-show="playing" @click="pauseMusic()" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="path_0" x="0" y="0" width="200" height="200"/></defs><g opacity="1" transform="translate(0 0)  rotate(0 100 100)"><mask id="bg-mask-0" fill="white"><use xlink:href="#path_0"/></mask><g mask="url(#bg-mask-0)"><path id="line2" style="fill:#000000" transform="translate(152 24)  rotate(0 0.0005 76)" opacity="1" d=""/><path id="line2" style="stroke:#000000; stroke-width:8; stroke-opacity:1; stroke-dasharray:0 0" transform="translate(152 24)  rotate(0 0.0005 76)" d="M0,0L0,152 "/><path id="line1" style="fill:#000000" transform="translate(48 24)  rotate(0 0.0005 76)" opacity="1" d=""/><path id="line1" style="stroke:#000000; stroke-width:8; stroke-opacity:1; stroke-dasharray:0 0" transform="translate(48 24)  rotate(0 0.0005 76)" d="M0,0L0,152 "/></g></g></svg>
                 <svg v-show="!playing" @click="startMusic()" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="path_0" x="0" y="0" width="200" height="200"/></defs><g opacity="1" transform="translate(0 0)  rotate(0 100 100)"><mask id="bg-mask-0" fill="white"><use xlink:href="#path_0"/></mask><g mask="url(#bg-mask-0)"><path id="三角形 1" fill-rule="evenodd" style="fill:#CCCCCC" transform="translate(0 12)  rotate(90 88 88)" opacity="0" d="M11.79,132L164.21,132L88,0L11.79,132Z "/><path id="三角形 1" style="stroke:#000000; stroke-width:8; stroke-opacity:1; stroke-dasharray:0 0" transform="translate(0 12)  rotate(90 88 88)" d="M11.79,132L164.21,132L88,0L11.79,132Z "/></g></g></svg>
                 <svg @click="playNext()" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="path_0" x="0" y="0" width="200" height="200"/></defs><g opacity="1" transform="translate(0 0)  rotate(0 100 100)"><mask id="bg-mask-0" fill="white"><use xlink:href="#path_0"/></mask><g mask="url(#bg-mask-0)"><path id="arrow" style="fill:#CCCCCC" transform="translate(35.21963688171376 44.356081611360985)  rotate(90 66.78036311828623 52.999999999999986)" opacity="0" d=""/><path id="arrow" style="stroke:#000000; stroke-width:8; stroke-opacity:1; stroke-dasharray:0 0" transform="translate(35.21963688171376 44.356081611360985)  rotate(90 66.78036311828623 52.999999999999986)" d="M133.56,105.98L66.78,0L0,106 "/></g></g></svg>
+                <div class="rate-btn" @click="cycleRate()" title="播放速度">{{ playRate }}x</div>
             </div>
 
             <div class="player-voluem">
@@ -166,6 +176,7 @@
             <svg t="1668787191526" @click="changePlayMode()" v-show="(playMode == 2)" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="2500" width="200" height="200"><path d="M928 476.8c-19.2 0-32 12.8-32 32v86.4c0 108.8-86.4 198.4-198.4 198.4H201.6l41.6-38.4c6.4-6.4 12.8-16 12.8-25.6 0-19.2-16-35.2-35.2-35.2-9.6 0-22.4 3.2-28.8 9.6l-108.8 99.2c-16 12.8-12.8 35.2 0 48l108.8 96c6.4 6.4 19.2 12.8 28.8 12.8 19.2 0 35.2-12.8 38.4-32 0-12.8-6.4-22.4-16-28.8l-48-44.8h499.2c147.2 0 265.6-118.4 265.6-259.2v-86.4c0-19.2-12.8-32-32-32zM96 556.8c19.2 0 32-12.8 32-32v-89.6c0-112 89.6-201.6 198.4-204.8h496l-41.6 38.4c-6.4 6.4-12.8 16-12.8 25.6 0 19.2 16 35.2 35.2 35.2 9.6 0 22.4-3.2 28.8-9.6l105.6-99.2c16-12.8 12.8-35.2 0-48l-108.8-96c-6.4-6.4-19.2-12.8-28.8-12.8-19.2 0-35.2 12.8-38.4 32 0 12.8 6.4 22.4 16 28.8l48 44.8H329.6C182.4 169.6 64 288 64 438.4v86.4c0 19.2 12.8 32 32 32z" p-id="2501"></path><path d="M544 672V352h-48L416 409.6l16 41.6 60.8-41.6V672z" p-id="2502"></path></svg>
             <svg t="1668787213634" @click="changePlayMode()" v-show="(playMode == 3)" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="2661" width="200" height="200"><path d="M844.8 665.6c-6.4-6.4-16-12.8-25.6-9.6-19.2 0-35.2 16-35.2 35.2 0 9.6 6.4 19.2 12.8 25.6l41.6 41.6c-44.8-6.4-86.4-22.4-121.6-51.2-3.2 0-3.2-3.2-6.4-6.4L332.8 304C268.8 233.6 192 195.2 99.2 195.2c-19.2 0-35.2 16-35.2 35.2s16 32 35.2 32c73.6 0 134.4 32 182.4 86.4l384 400 6.4 6.4c48 38.4 108.8 64 172.8 70.4l-48 44.8c-9.6 6.4-16 19.2-16 28.8 0 19.2 19.2 35.2 38.4 32 9.6 0 19.2-6.4 25.6-12.8l99.2-92.8c16-16 16-41.6 0-57.6l-99.2-102.4z m-3.2-556.8c-12.8-16-32-19.2-48-6.4-9.6 6.4-12.8 16-12.8 25.6 0 12.8 3.2 22.4 16 28.8l41.6 41.6c-73.6 9.6-140.8 38.4-192 89.6l-115.2 118.4c-12.8 12.8-12.8 32 0 44.8 6.4 6.4 16 9.6 25.6 9.6s19.2-3.2 25.6-9.6l112-118.4c41.6-38.4 92.8-64 147.2-70.4l-44.8 44.8c-6.4 6.4-12.8 16-12.8 25.6 0 19.2 16 35.2 32 35.2 9.6 0 19.2-3.2 28.8-9.6L950.4 256c12.8-12.8 12.8-35.2 0-48l-108.8-99.2m-438.4 448c-9.6 0-19.2 3.2-25.6 9.6l-118.4 121.6c-48 44.8-96 67.2-160 67.2H96c-19.2 0-35.2 16-35.2 35.2s16 32 35.2 32h3.2c83.2 0 147.2-32 211.2-86.4l121.6-124.8c6.4-6.4 9.6-12.8 9.6-22.4 0-9.6-3.2-16-9.6-22.4-9.6-6.4-19.2-9.6-28.8-9.6z" p-id="2662"></path></svg>
             <svg t="1668787624519" @click="playlistWidgetShow = !playlistWidgetShow" class="playlist-icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="15157" width="200" height="200"><path d="M85.333333 768h426.666667v85.333333H85.333333v-85.333333z m0-298.666667h597.333334v85.333334H85.333333v-85.333334z m0-298.666666h853.333334v85.333333H85.333333V170.666667z m725.333334 476.586666V384h213.333333v85.333333h-128v298.666667a128 128 0 1 1-85.333333-120.746667zM768 810.666667a42.666667 42.666667 0 1 0 0-85.333334 42.666667 42.666667 0 0 0 0 85.333334z" p-id="15158"></path></svg>
+            <SleepTimer class="song-sleep"></SleepTimer>
         </div>
     </div>
     
@@ -484,6 +495,16 @@
           flex-direction: row;
           justify-content: space-evenly;
           align-items: center;
+          .rate-btn{
+            font: 12Px 'Bender-Bold', monospace;
+            color: black;
+            cursor: pointer;
+            min-width: 4.5vh;
+            text-align: center;
+            user-select: none;
+            transition: 0.2s;
+            &:hover{ opacity: 0.55; }
+          }
           svg{
             width: 5vh;
             height: 5vh;
@@ -541,6 +562,14 @@
           margin-top: 3vh;
           width: 2.5vh;
           height: 2.5vh;
+        }
+        .song-sleep{
+          margin-top: 3vh;
+          width: 2.5vh;
+          display: flex;
+          justify-content: center;
+          :deep(.sleep-btn){ width: 2.5vh; height: 2.5vh; }
+          :deep(.sleep-remain){ display: none; }
         }
       }
     }

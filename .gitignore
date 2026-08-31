@@ -13,6 +13,7 @@ dist-ssr
 # AI assistant directories
 .claude/
 .serena/
+.omp/
 
 # Editor directories and files
 node_modules/*

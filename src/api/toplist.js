@@ -20,6 +20,9 @@ export function getUserRecord(params) {
     return request({
         url: '/user/record',
         method: 'get',
-        params,
+        params: {
+            ...params,
+            timestamp: new Date().getTime(),
+        },
     })
 }

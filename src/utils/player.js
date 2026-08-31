@@ -3,7 +3,8 @@ import { Howl } from 'howler'
 import dayjs from 'dayjs';
 import { noticeOpen } from './dialog'
 import { isHydrogenWeb, getBiliCookieForApi } from './webProfileNas'
-import { checkMusic, getMusicUrl, likeMusic, getLyric } from '../api/song'
+import { checkMusic, getMusicUrl, likeMusic, getLyric, scrobble } from '../api/song'
+import { isLogin } from './authority'
 import { getCloudLyric } from '../api/cloud'
 import { getLikelist } from '../api/user'
 import { useUserStore } from '../store/userStore'
@@ -28,6 +29,130 @@ let currentTiming = null
 let videoCheckInterval = null
 let playFailCount = 0 //连续播放失败计数，用于停止不可用列表的自动跳歌死循环
 
+// --- 网易云听歌记录同步 (Scrobble) ---
+let scrobbleState = {
+    songId: null,
+    name: '',
+    artist: '',
+    sourceId: 0,
+    duration: 0,
+    listenedSeconds: 0,
+    lastPlayTime: null,
+    startplaySent: false,
+    scrobbled: false,
+}
+
+// 刷新并结算当前听歌记录（切歌或播放结束时触发）
+export function flushScrobble(forceEnd = false) {
+    if (!isLogin() || !scrobbleState.songId) return
+
+    // 如果正在播放，先累加当前片段的听歌时间
+    if (scrobbleState.lastPlayTime) {
+        const delta = (Date.now() - scrobbleState.lastPlayTime) / 1000
+        scrobbleState.listenedSeconds += delta
+        scrobbleState.lastPlayTime = forceEnd ? null : Date.now()
+    }
+
+    const { songId: sId, name, artist, sourceId, duration, listenedSeconds, scrobbled } = scrobbleState
+    if (scrobbled) return
+
+    // 触发打卡条件：
+    // 1. 播放结束 (forceEnd 为 true 且听了至少 5 秒)
+    // 2. 切歌时已听满 30 秒或总时长的 50%
+    const isDurationValid = duration > 0 ? listenedSeconds >= Math.min(30, duration * 0.5) : listenedSeconds >= 30
+    if (forceEnd ? listenedSeconds >= 5 : isDurationValid) {
+        const reportTime = forceEnd && duration > 0
+            ? Math.max(Math.floor(listenedSeconds), Math.floor(duration))
+            : Math.floor(listenedSeconds)
+
+        scrobble({
+            id: sId,
+            name: name || '',
+            artist: artist || '',
+            sourceid: sourceId || 0,
+            time: reportTime,
+            total: duration || reportTime || 180,
+            action: 'play',
+        }).catch((err) => {
+            console.warn('[scrobble] 同步播放记录失败:', err?.message || err)
+        })
+        scrobbleState.scrobbled = true
+    }
+}
+
+// 初始化新歌曲的打卡上下文
+function initScrobble(song) {
+    flushScrobble(false)
+    if (!song || song.type === 'local' || !song.id) {
+        scrobbleState = {
+            songId: null,
+            name: '',
+            artist: '',
+            sourceId: 0,
+            duration: 0,
+            listenedSeconds: 0,
+            lastPlayTime: null,
+            startplaySent: false,
+            scrobbled: false,
+        }
+        return
+    }
+
+    let srcId = 0
+    if (listInfo.value && listInfo.value.id && !isNaN(Number(listInfo.value.id))) {
+        srcId = Number(listInfo.value.id)
+    }
+
+    const artistName = (song.ar || song.artists || []).map(a => a?.name || a).filter(Boolean).join('/')
+
+    scrobbleState = {
+        songId: song.id,
+        name: song.name || '',
+        artist: artistName || '',
+        sourceId: srcId,
+        duration: song.dt ? Math.floor(song.dt / 1000) : 0,
+        listenedSeconds: 0,
+        lastPlayTime: null,
+        startplaySent: false,
+        scrobbled: false,
+    }
+}
+
+// 播放时开始/恢复计时
+function markScrobblePlay() {
+    if (!scrobbleState.songId) return
+    if (!scrobbleState.startplaySent && isLogin()) {
+        scrobble({
+            id: scrobbleState.songId,
+            name: scrobbleState.name,
+            artist: scrobbleState.artist,
+            sourceid: scrobbleState.sourceId || 0,
+            time: 0,
+            total: scrobbleState.duration || 180,
+            action: 'startplay',
+        }).catch(() => {})
+        scrobbleState.startplaySent = true
+    }
+    scrobbleState.lastPlayTime = Date.now()
+}
+
+// 暂停时累加时长
+function markScrobblePause() {
+    if (!scrobbleState.songId || !scrobbleState.lastPlayTime) return
+    const delta = (Date.now() - scrobbleState.lastPlayTime) / 1000
+    scrobbleState.listenedSeconds += delta
+    scrobbleState.lastPlayTime = null
+}
+
+// 单曲循环重新打卡
+function resetScrobbleForLoop() {
+    if (!scrobbleState.songId) return
+    scrobbleState.scrobbled = false
+    scrobbleState.listenedSeconds = 0
+    scrobbleState.startplaySent = false
+    scrobbleState.lastPlayTime = Date.now()
+}
+
 // 统一处理"当前歌曲无法播放"：清理状态 + 自动跳下一首；连续失败达到列表长度时停止
 function skipUnplayable(msg) {
     clearInterval(musicProgress)
@@ -35,6 +160,14 @@ function skipUnplayable(msg) {
     windowApi.playOrPauseMusicCheck(false)
     currentMusic.value = null
     lyric.value = null
+    scrobbleState = {
+        songId: null,
+        sourceId: 0,
+        duration: 0,
+        listenedSeconds: 0,
+        lastPlayTime: null,
+        scrobbled: false,
+    }
     noticeOpen(msg, 2)
     playFailCount++
     const listLength = (songList.value || []).length
@@ -90,11 +223,15 @@ export function play(url, autoplay) {
         },
         onend: function() {
             clearInterval(musicProgress)
+            flushScrobble(true)
             if(playMode.value == 0 && currentIndex.value < songList.value.length - 1) { playNext();return } //顺序播放
             if(playMode.value == 0 && currentIndex.value == songList.value.length - 1) { playing.value = false;playModeOne = true;windowApi.playOrPauseMusicCheck(playing.value);return } //顺序播放结束暂停状态
             if(playMode.value == 1) { playNext();return } //列表循环
             if(playMode.value == 3) { playNext() } //随机播放(为列表循环)
-            if(playMode.value == 2) { clearLycAnimation() } // 单曲循环播放结束时清除歌词动画
+            if(playMode.value == 2) {
+                clearLycAnimation()
+                resetScrobbleForLoop()
+            } // 单曲循环播放结束时清除歌词动画并重置打卡
         },
         onloaderror: function() {
             skipUnplayable('歌曲加载失败')
@@ -115,6 +252,7 @@ export function play(url, autoplay) {
     })
     currentMusic.value.on('play', () => {
         playFailCount = 0
+        markScrobblePlay()
         currentMusic.value.fade(0,volume.value,200)
         startProgress()
         playing.value = true
@@ -122,9 +260,16 @@ export function play(url, autoplay) {
     })
     currentMusic.value.on('pause', () => {
         clearInterval(musicProgress)
+        markScrobblePause()
         playing.value = false
         windowApi.playOrPauseMusicCheck(playing.value)
         currentMusic.value.fade(volume.value,0,200)
+    })
+    currentMusic.value.on('stop', () => {
+        clearInterval(musicProgress)
+        markScrobblePause()
+        playing.value = false
+        windowApi.playOrPauseMusicCheck(playing.value)
     })
 }
 
@@ -149,9 +294,9 @@ export function setId(id, index) {
     }
 }
 
-export function addToList(listType, songlist) {
+export function addToList(listType, songlist, sourceId) {
     listInfo.value = {
-        id: (listType == 'rec' ? 'rec' : (libraryInfo.value ? libraryInfo.value.id : 'none')),
+        id: sourceId ? sourceId : (listType == 'rec' ? 'rec' : (libraryInfo.value ? libraryInfo.value.id : 'none')),
         type: listType
     }
     songList.value = songlist.slice()
@@ -243,6 +388,7 @@ export function loadMusicVideo(id) {
 }
 
 export function addSong(id, index, autoplay, isLocal) {
+    flushScrobble(false)
     clearInterval(musicProgress)
     progress.value = 0
     if(lyricShow.value) {
@@ -327,6 +473,7 @@ function loadLyric(id) {
 
 export async function getSongUrl(id, index, autoplay, isLocal) {
     const cur = (songList.value || [])[currentIndex.value]
+    initScrobble(cur)
     if(cur) windowApi.setWindowTile(cur.name + " - " + (cur.ar?.[0]?.name || ''))
     if(isLocal) {
         windowApi.getLocalMusicImage(songList.value[currentIndex.value].url).then(base64 => {

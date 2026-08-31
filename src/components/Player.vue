@@ -543,12 +543,17 @@
           margin-top: 3vh;
           width: 2.5vh;
           height: 2.5vh;
+          transition: 0.2s;
+          &:hover{ opacity: 0.55; filter: brightness(1.35); }
         }
         .song-sleep{
           margin-top: 3vh;
           width: 2.5vh;
           display: flex;
           justify-content: center;
+          cursor: pointer;
+          transition: 0.2s;
+          &:hover{ opacity: 0.55; filter: brightness(1.35); }
           :deep(.sleep-btn){ width: 2.5vh; height: 2.5vh; }
           :deep(.sleep-remain){ display: none; }
         }

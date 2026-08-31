@@ -23,6 +23,21 @@ async function startNcm(port = 36530) {
     }
   }
 
+  const scrobbleIdx = defaultModules.findIndex(m => m.route === '/scrobble')
+  if (scrobbleIdx !== -1) {
+    defaultModules[scrobbleIdx] = {
+      identifier: 'scrobble',
+      route: '/scrobble',
+      module: require('../../../src/server/custom-scrobble'),
+    }
+  } else {
+    defaultModules.push({
+      identifier: 'scrobble',
+      route: '/scrobble',
+      module: require('../../../src/server/custom-scrobble'),
+    })
+  }
+
   await serveNcmApi({
     checkVersion: true,
     port,

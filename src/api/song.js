@@ -112,3 +112,20 @@ export function fmTrash(id) {
         }
     })
 }
+
+/**
+ * 听歌打卡 / 同步播放记录到网易云
+ * 说明 : 传入音乐 id, 来源 id, 歌曲播放时间(秒), 记录在网易云个人主页听歌排行中
+ * @param {Object} params - { id: 歌曲id, sourceid: 歌单或专辑id, time: 播放时间(秒) }
+ * @returns
+ */
+export function scrobble(params) {
+    return request({
+        url: '/scrobble',
+        method: 'get',
+        params: {
+            ...params,
+            timestamp: new Date().getTime(),
+        }
+    })
+}

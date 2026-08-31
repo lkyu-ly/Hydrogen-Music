@@ -58,13 +58,13 @@
 
   const playAll = (songs) => {
     if (!songs || !songs.length) { noticeOpen('列表为空', 2); return }
-    addToList('toplist', songs)
+    addToList('toplist', songs, activeBoard.value)
     addSong(songs[0].id, 0, true)
   }
   const playOne = (song, index, list) => {
     const src = list || boardSongs.value
     if (!src || !src.length) return
-    addToList('toplist', src)
+    addToList('toplist', src, tab.value === 'toplist' ? activeBoard.value : 0)
     addSong(song.id, index, true)
   }
 

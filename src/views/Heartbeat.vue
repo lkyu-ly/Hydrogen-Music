@@ -593,7 +593,8 @@ onUnmounted(() => {
 
   .lyric-track {
     position: relative;
-    padding: 38% 0 40%;
+    /* 用视口单位而非百分比：百分比相对宽度，宽窗口时会把首行推得过低 */
+    padding: 20vh 0 24vh;
     transition: transform 0.45s cubic-bezier(0.3, 0.79, 0.55, 0.99);
     will-change: transform;
   }
@@ -601,10 +602,11 @@ onUnmounted(() => {
   .lyric-line {
     position: relative;
     text-align: left;
-    font-size: 2vh; font-weight: bold;
+    font-size: 2vh;
+    font-weight: bold;
     color: rgba(26, 26, 26, 0.55);
     padding: 0.7vh 1.4vh;
-    margin: 0 0 1.6vh 0;
+    margin: 0 0 2.6vh 0;
     overflow: hidden;
     &::before {
       content: '';

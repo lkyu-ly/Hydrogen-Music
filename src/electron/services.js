@@ -31,6 +31,21 @@ module.exports = async function startNeteaseMusicApi() {
     }
   }
 
+  const scrobbleIdx = defaultModules.findIndex(m => m.route === '/scrobble')
+  if (scrobbleIdx !== -1) {
+    defaultModules[scrobbleIdx] = {
+      identifier: 'scrobble',
+      route: '/scrobble',
+      module: require('../server/custom-scrobble'),
+    }
+  } else {
+    defaultModules.push({
+      identifier: 'scrobble',
+      route: '/scrobble',
+      module: require('../server/custom-scrobble'),
+    })
+  }
+
   await serveNcmApi({
     checkVersion: true,
     port: 36530,

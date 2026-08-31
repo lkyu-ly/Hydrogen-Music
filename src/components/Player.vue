@@ -4,7 +4,7 @@
   import { songTime2 } from '../utils/player';
   import VueSlider from 'vue-slider-component'
   import PlayList from './PlayList.vue'
-  import { startMusic, pauseMusic, playLast, playNext, changeProgress, changePlayMode, likeSong, setPlayRate } from '../utils/player'
+  import { startMusic, pauseMusic, playLast, playNext, changeProgress, changePlayMode, likeSong } from '../utils/player'
   import SleepTimer from './SleepTimer.vue'
   import { useUserStore } from '../store/userStore'
   import { usePlayerStore } from '../store/playerStore'
@@ -22,19 +22,11 @@
     },
   })
 
-  const { currentMusic, playing, progress, volume, playRate, playMode, currentIndex, songList, songId, widgetState, lyricShow, lyricType, playlistWidgetShow, time, playerChangeSong, localBase64Img, musicVideo, addMusicVideo, videoIsPlaying, playerShow, coverBlur } = storeToRefs(playerStore)
+  const { currentMusic, playing, progress, volume, playMode, currentIndex, songList, songId, widgetState, lyricShow, lyricType, playlistWidgetShow, time, playerChangeSong, localBase64Img, musicVideo, addMusicVideo, videoIsPlaying, playerShow, coverBlur } = storeToRefs(playerStore)
 
   const checkIsLike = computed(() => (id) => {
     return userStore.likelist.includes(id)
   })
-
-  // 倍速循环切换：1 → 1.25 → 1.5 → 2 → 0.5 → 0.75 → 1
-  const rateCycle = [1, 1.25, 1.5, 2, 0.5, 0.75]
-  const cycleRate = () => {
-    const current = Number(playRate.value) || 1
-    const i = rateCycle.indexOf(current)
-    setPlayRate(rateCycle[(i + 1) % rateCycle.length])
-  }
 
   // 全屏播放器的音量滑条也需要实际作用于 Howl 实例（迷你条卸载后无人监听 volume）
   watch(() => volume.value, () => {
@@ -144,7 +136,6 @@
                 <svg v-show="playing" @click="pauseMusic()" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="path_0" x="0" y="0" width="200" height="200"/></defs><g opacity="1" transform="translate(0 0)  rotate(0 100 100)"><mask id="bg-mask-0" fill="white"><use xlink:href="#path_0"/></mask><g mask="url(#bg-mask-0)"><path id="line2" style="fill:#000000" transform="translate(152 24)  rotate(0 0.0005 76)" opacity="1" d=""/><path id="line2" style="stroke:#000000; stroke-width:8; stroke-opacity:1; stroke-dasharray:0 0" transform="translate(152 24)  rotate(0 0.0005 76)" d="M0,0L0,152 "/><path id="line1" style="fill:#000000" transform="translate(48 24)  rotate(0 0.0005 76)" opacity="1" d=""/><path id="line1" style="stroke:#000000; stroke-width:8; stroke-opacity:1; stroke-dasharray:0 0" transform="translate(48 24)  rotate(0 0.0005 76)" d="M0,0L0,152 "/></g></g></svg>
                 <svg v-show="!playing" @click="startMusic()" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="path_0" x="0" y="0" width="200" height="200"/></defs><g opacity="1" transform="translate(0 0)  rotate(0 100 100)"><mask id="bg-mask-0" fill="white"><use xlink:href="#path_0"/></mask><g mask="url(#bg-mask-0)"><path id="三角形 1" fill-rule="evenodd" style="fill:#CCCCCC" transform="translate(0 12)  rotate(90 88 88)" opacity="0" d="M11.79,132L164.21,132L88,0L11.79,132Z "/><path id="三角形 1" style="stroke:#000000; stroke-width:8; stroke-opacity:1; stroke-dasharray:0 0" transform="translate(0 12)  rotate(90 88 88)" d="M11.79,132L164.21,132L88,0L11.79,132Z "/></g></g></svg>
                 <svg @click="playNext()" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="path_0" x="0" y="0" width="200" height="200"/></defs><g opacity="1" transform="translate(0 0)  rotate(0 100 100)"><mask id="bg-mask-0" fill="white"><use xlink:href="#path_0"/></mask><g mask="url(#bg-mask-0)"><path id="arrow" style="fill:#CCCCCC" transform="translate(35.21963688171376 44.356081611360985)  rotate(90 66.78036311828623 52.999999999999986)" opacity="0" d=""/><path id="arrow" style="stroke:#000000; stroke-width:8; stroke-opacity:1; stroke-dasharray:0 0" transform="translate(35.21963688171376 44.356081611360985)  rotate(90 66.78036311828623 52.999999999999986)" d="M133.56,105.98L66.78,0L0,106 "/></g></g></svg>
-                <div class="rate-btn" @click="cycleRate()" title="播放速度">{{ playRate }}x</div>
             </div>
 
             <div class="player-voluem">
@@ -495,16 +486,6 @@
           flex-direction: row;
           justify-content: space-evenly;
           align-items: center;
-          .rate-btn{
-            font: 12Px 'Bender-Bold', monospace;
-            color: black;
-            cursor: pointer;
-            min-width: 4.5vh;
-            text-align: center;
-            user-select: none;
-            transition: 0.2s;
-            &:hover{ opacity: 0.55; }
-          }
           svg{
             width: 5vh;
             height: 5vh;

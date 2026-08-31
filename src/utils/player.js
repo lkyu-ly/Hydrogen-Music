@@ -18,7 +18,7 @@ const userStore = useUserStore()
 const libraryStore = useLibraryStore(pinia)
 const playerStore = usePlayerStore(pinia)
 const { libraryInfo } = storeToRefs(libraryStore)
-const { currentMusic, playing, progress, volume, playRate, quality, playMode, songList, shuffledList, shuffleIndex, listInfo, songId, currentIndex, time, playlistWidgetShow, playerChangeSong, lyric, lyricsObjArr, lyricShow, lyricEle, isLyricDelay, widgetState, localBase64Img, musicVideo, currentMusicVideo, musicVideoDOM, videoIsPlaying, playerShow, lyricBlur, coverUrl} = storeToRefs(playerStore)
+const { currentMusic, playing, progress, volume, quality, playMode, songList, shuffledList, shuffleIndex, listInfo, songId, currentIndex, time, playlistWidgetShow, playerChangeSong, lyric, lyricsObjArr, lyricShow, lyricEle, isLyricDelay, widgetState, localBase64Img, musicVideo, currentMusicVideo, musicVideoDOM, videoIsPlaying, playerShow, lyricBlur, coverUrl} = storeToRefs(playerStore)
 
 let isProgress = false
 let musicProgress = null
@@ -84,7 +84,6 @@ export function play(url, autoplay) {
         format: ['mp3', 'flac'],
         loop: (playMode.value == 2),
         volume: volume.value,
-        rate: playRate.value || 1,
         xhr: {
             method: 'GET',
             withCredentials: true,
@@ -713,13 +712,6 @@ export function cancelSleepTimer() {
 }
 export function sleepTimerRemain() {
     return sleepDeadline ? Math.max(0, sleepDeadline - Date.now()) : null
-}
-
-// 倍速播放
-export function setPlayRate(rate) {
-    playRate.value = rate
-    if (currentMusic.value) currentMusic.value.rate(rate)
-    noticeOpen(`播放速度 ${rate}x`, 2)
 }
 
 /**

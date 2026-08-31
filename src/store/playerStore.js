@@ -9,7 +9,6 @@ export const usePlayerStore = defineStore('playerStore', {
             progress: 0,//进度条
             volume: 0.3,//音量
             // volumeBeforeMuted: 0,//静音前音量
-            playRate: 1,//播放倍速
             playMode: 0,//0为顺序播放，1为列表循环，2为单曲循环，3为随机播放
             listInfo: null,
             songList: null,//播放列表
@@ -52,6 +51,6 @@ export const usePlayerStore = defineStore('playerStore', {
     },
     persist: {
         storage: localStorage,
-        paths: ['progress','volume','playRate','playMode','shuffleIndex','listInfo','songId','currentIndex','time','quality','lyricType','musicVideo','coverBlur','lyricBlur']
+        paths: ['progress','volume','playMode','shuffleIndex','listInfo','songId','currentIndex','time','quality','lyricType','musicVideo','coverBlur','lyricBlur']
     },
 })

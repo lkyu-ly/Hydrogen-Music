@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import { noticeOpen } from './dialog'
 import { isHydrogenWeb, getBiliCookieForApi } from './webProfileNas'
 import { checkMusic, getMusicUrl, likeMusic, getLyric, scrobble } from '../api/song'
+import { search } from '../api/other'
 import { isLogin } from './authority'
 import { getCloudLyric } from '../api/cloud'
 import { getLikelist } from '../api/user'
@@ -457,18 +458,94 @@ export function setSongToWindows() {
         return
     }
 }
-// 歌词加载：云盘歌曲（id ≥ 8e8）无歌词时回退到云盘歌词接口
-function loadLyric(id) {
+// 歌词补全计划：当本地/云盘或无歌词歌曲播放时，搜索匹配网易云曲库歌词自动补全
+export async function completeMissingLyric(song, currentTargetId) {
+    if (!playerStore.lyricCompletion || !song) return
+    let rawName = song.songName || song.name || song.localName || song.title || song.fileName || ''
+    let cleanName = rawName
+        .replace(/\.[^/.]+$/, '')
+        .replace(/_EM$/i, '')
+        .replace(/\s*\(Explicit\)/i, '')
+        .replace(/\s*\(Lost Paradise\)/i, '')
+        .replace(/\s*\(Spring Has Begun\)/i, '')
+        .replace(/[-_]\s*$/g, '')
+        .trim()
+    if (!cleanName) return
+
+    let rawArtist = ''
+    if (Array.isArray(song.ar)) {
+        rawArtist = song.ar.map(a => a?.name).filter(n => n && n !== 'NONE' && n !== 'local' && n !== '未知艺术家').join(' ')
+    } else if (Array.isArray(song.artists)) {
+        rawArtist = song.artists.map(a => a?.name || a).filter(n => n && n !== 'NONE' && n !== 'local' && n !== '未知艺术家').join(' ')
+    } else if (typeof song.artist === 'string' && song.artist !== '未知艺术家') {
+        rawArtist = song.artist
+    }
+
+    // 若文件名包含 "歌手 - 歌名" 或 "歌名 - 歌手" 分隔，智能解析补充
+    if (!rawArtist && cleanName.includes(' - ')) {
+        const parts = cleanName.split(' - ')
+        if (parts.length === 2) {
+            cleanName = parts[0].trim()
+            rawArtist = parts[1].trim()
+        }
+    }
+
+    const keywords = `${cleanName} ${rawArtist}`.trim()
+    if (!keywords) return
+
+    try {
+        const searchRes = await search({ keywords, limit: 5, type: 1 })
+        const songs = searchRes?.result?.songs || []
+        if (!songs.length) return
+
+        const matchedSong = songs[0]
+        if (!matchedSong || !matchedSong.id) return
+
+        const foundLyric = await getLyric(matchedSong.id)
+        if (foundLyric?.lrc?.lyric) {
+            // 防竞态：确认当前播放歌曲未被切走
+            if (songId.value === currentTargetId || currentTargetId == null) {
+                lyricsObjArr.value = null // 重置触发 Lyric.vue 重新解析
+                lyric.value = foundLyric
+                if (!lyricShow.value && !widgetState.value) {
+                    lyricShow.value = true
+                    playerChangeSong.value = false
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[completeMissingLyric] 歌词补全搜索失败:', e?.message || e)
+    }
+}
+
+// 歌词加载：云盘歌曲（id ≥ 8e8）无歌词时回退到云盘歌词接口；未命中时支持歌词补全计划
+function loadLyric(id, song) {
+    const curSong = song || (songList.value || [])[currentIndex.value]
     getLyric(id).then(songLiric => {
-        if (songLiric?.lrc?.lyric || id < 800000000 || !userStore.user) {
+        if (songLiric?.lrc?.lyric) {
             lyric.value = songLiric
             return
         }
-        getCloudLyric({ uid: userStore.user.userId, sid: id }).then(res => {
-            const lrc = res?.data?.lyric || res?.lyric || ''
-            lyric.value = lrc ? { lrc: { lyric: lrc } } : songLiric
-        }).catch(() => { lyric.value = songLiric })
-    }).catch(() => {})
+        if (id >= 800000000 && userStore.user) {
+            getCloudLyric({ uid: userStore.user.userId, sid: id }).then(res => {
+                const lrc = res?.data?.lyric || res?.lyric || ''
+                if (lrc) {
+                    lyric.value = { lrc: { lyric: lrc } }
+                } else {
+                    lyric.value = songLiric
+                    completeMissingLyric(curSong, id)
+                }
+            }).catch(() => {
+                lyric.value = songLiric
+                completeMissingLyric(curSong, id)
+            })
+        } else {
+            lyric.value = songLiric
+            completeMissingLyric(curSong, id)
+        }
+    }).catch(() => {
+        completeMissingLyric(curSong, id)
+    })
 }
 
 export async function getSongUrl(id, index, autoplay, isLocal) {
@@ -488,6 +565,7 @@ export async function getSongUrl(id, index, autoplay, isLocal) {
         } else {
             lyric.value = null
             lyricsObjArr.value = null
+            completeMissingLyric(cur, id)
         }
         if(!lyricShow.value && !widgetState.value) {
             lyricShow.value = true
@@ -507,7 +585,7 @@ export async function getSongUrl(id, index, autoplay, isLocal) {
                     skipUnplayable('当前歌曲无法播放')
                 }
             }).catch(() => skipUnplayable('当前歌曲无法播放'))
-            loadLyric(id)
+            loadLyric(id, cur)
         } else if (unblockOn) {
             getMusicUrl(id, quality.value).then(async songInfo => {
                 if (songInfo.data[0].url) {
@@ -561,7 +639,7 @@ export async function getSongUrl(id, index, autoplay, isLocal) {
                     skipUnplayable('当前歌曲无法播放')
                 }
             })
-            loadLyric(id)
+            loadLyric(id, cur)
         } else {
             skipUnplayable('当前歌曲无法播放')
         }

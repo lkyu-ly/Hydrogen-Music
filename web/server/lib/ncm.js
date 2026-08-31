@@ -38,6 +38,36 @@ async function startNcm(port = 36530) {
     })
   }
 
+  const cloudDelIdx = defaultModules.findIndex(m => m.route === '/user/cloud/del')
+  if (cloudDelIdx !== -1) {
+    defaultModules[cloudDelIdx] = {
+      identifier: 'user_cloud_del',
+      route: '/user/cloud/del',
+      module: require('../../../src/server/custom-cloud-del'),
+    }
+  } else {
+    defaultModules.push({
+      identifier: 'user_cloud_del',
+      route: '/user/cloud/del',
+      module: require('../../../src/server/custom-cloud-del'),
+    })
+  }
+
+  const cloudIdx = defaultModules.findIndex(m => m.route === '/cloud')
+  if (cloudIdx !== -1) {
+    defaultModules[cloudIdx] = {
+      identifier: 'cloud',
+      route: '/cloud',
+      module: require('../../../src/server/custom-cloud-upload'),
+    }
+  } else {
+    defaultModules.push({
+      identifier: 'cloud',
+      route: '/cloud',
+      module: require('../../../src/server/custom-cloud-upload'),
+    })
+  }
+
   await serveNcmApi({
     checkVersion: true,
     port,

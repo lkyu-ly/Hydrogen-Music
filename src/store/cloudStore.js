@@ -20,8 +20,8 @@ export const useCloudStore= defineStore('cloudStore', {
         async refresh() {
             const res = await getCloudDiskData({ limit: 500, offset: 0, timestamp: new Date().getTime() })
             this.count = res.count
-            this.size = (res.size / 1024 / 1024 / 1024).toFixed(1)
-            this.maxSize = res.maxSize / 1024 / 1024 / 1024
+            this.size = Number((res.size / 1024 / 1024 / 1024).toFixed(1))
+            this.maxSize = Number(res.maxSize / 1024 / 1024 / 1024)
             this.cloudSongs = res.data || []
             this.hasMore = (res.count || 0) > this.cloudSongs.length
             return res

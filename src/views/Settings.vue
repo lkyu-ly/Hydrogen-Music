@@ -81,6 +81,7 @@ const isCheckingUpdate = ref(false)
 const unblockEnabled = ref(false)
 const autoUpdate = ref(true)
 const autoMirror = ref(true)
+const lyricCompletion = ref(false)
 const githubMirror = ref('')
 const isTestingMirror = ref(false)
 const mirrorResults = ref([])
@@ -142,6 +143,10 @@ onActivated(() => {
         if (Object.prototype.hasOwnProperty.call(m, 'coverBlur')) playerStore.coverBlur = !!m.coverBlur
         if (Object.prototype.hasOwnProperty.call(m, 'lyricBlur')) playerStore.lyricBlur = !!m.lyricBlur
         if (Object.prototype.hasOwnProperty.call(m, 'musicVideo')) playerStore.musicVideo = !!m.musicVideo
+        if (Object.prototype.hasOwnProperty.call(m, 'lyricCompletion')) {
+            lyricCompletion.value = !!m.lyricCompletion
+            playerStore.lyricCompletion = lyricCompletion.value
+        }
     })
 })
 
@@ -157,6 +162,7 @@ const setAppSettings = async () => {
             coverBlur: playerStore.coverBlur,
             lyricBlur: playerStore.lyricBlur,
             musicVideo: playerStore.musicVideo,
+            lyricCompletion: lyricCompletion.value,
         },
         local: {
             videoFolder: videoFolder.value,
@@ -359,6 +365,12 @@ const openLyricBlur = async (flag) => {
     if (flag) playerStore.lyricBlur = !playerStore.lyricBlur
     if (flag) await persistWebSettingsFromForm()
 }
+const setLyricCompletion = async () => {
+    lyricCompletion.value = !lyricCompletion.value
+    playerStore.lyricCompletion = lyricCompletion.value
+    await setAppSettings()
+    if (isWebClient) await persistWebSettingsFromForm()
+}
 const userLogout = () => {
     if (isLogin()) {
         logout().then(async (result) => {
@@ -552,6 +564,18 @@ const testMirrors = async () => {
                                         {{ playerStore.lyricBlur ? '已开启' : '已关闭' }}</div>
                                     <Transition name="toggle">
                                         <div class="toggle-on" v-show="playerStore.lyricBlur"></div>
+                                    </Transition>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="option">
+                            <div class="option-name">开启歌词补全计划</div>
+                            <div class="option-operation">
+                                <div class="toggle" @click="setLyricCompletion()">
+                                    <div class="toggle-off" :class="{ 'toggle-on-in': lyricCompletion }">
+                                        {{ lyricCompletion ? '已开启' : '已关闭' }}</div>
+                                    <Transition name="toggle">
+                                        <div class="toggle-on" v-show="lyricCompletion"></div>
                                     </Transition>
                                 </div>
                             </div>

@@ -41,6 +41,8 @@ export const usePlayerStore = defineStore('playerStore', {
             coverBlur: false,
             lyricBlur: false,
             coverUrl: null,
+            /** 歌词补全计划开关 */
+            lyricCompletion: false,
             /** Web：全屏播放页过渡；`webRightEmbed` 从右侧分栏进入（横向滑入），`widget` 从底栏进入（沿用 translateY） */
             fullPlayerOpenSource: null,
             /** Web 主页分栏右侧嵌入：为 true 时不启用音乐视频层与封面模糊（不写入 persist） */
@@ -51,6 +53,6 @@ export const usePlayerStore = defineStore('playerStore', {
     },
     persist: {
         storage: localStorage,
-        paths: ['progress','volume','playMode','shuffleIndex','listInfo','songId','currentIndex','time','quality','lyricType','musicVideo','coverBlur','lyricBlur']
+        paths: ['progress','volume','playMode','shuffleIndex','listInfo','songId','currentIndex','time','quality','lyricType','musicVideo','coverBlur','lyricBlur','lyricCompletion']
     },
 })

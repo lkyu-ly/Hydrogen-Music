@@ -47,10 +47,12 @@
     const ids = selectedSongs.value.map(item => item.id).join(',')
     const deleteIds = selectedSongs.value.map(item => item.id)
     deleteCloudSong({ id: ids }).then(result => {
-        if(result.code == 200) {
+        if(result && (result.code == 200 || result.status == 200)) {
             cloudStore.removeByIds(deleteIds)
             selectedSongs.value = []
             noticeOpen("删除成功", 2)
+            // 重新同步云盘信息与容量
+            cloudStore.refresh().catch(() => {})
         } else {
             noticeOpen("删除失败", 2)
         }
@@ -66,7 +68,16 @@
   const play = (id, index) => {
     let list = []
     cloudSongs.value.forEach(item => {
-        list.push(item.simpleSong)
+        const s = item.simpleSong ? { ...item.simpleSong } : {}
+        s.id = s.id || item.songId
+        s.name = item.songName || item.fileName || s.name
+        s.songName = item.songName || s.name
+        s.fileName = item.fileName
+        s.artist = item.artist || (s.ar ? s.ar.map(a => a.name).join('/') : '')
+        s.ar = (Array.isArray(s.ar) && s.ar.length && s.ar[0].name) ? s.ar : [{ id: 0, name: item.artist || '未知艺术家' }]
+        s.al = (s.al && typeof s.al === 'object') ? s.al : { id: 0, name: item.album || '未知专辑', picUrl: '' }
+        s.type = 'cloud'
+        list.push(s)
     });
     playerStore.songList = list
     addSong(id, index, true)
@@ -77,22 +88,22 @@
 <template>
   <div class="file-container">
     <div class="file-list" :class="{'file-list-selected': selectedSongs.length != 0}" @scroll="onListScroll">
-        <div class="list-item" @dblclick="play(item.simpleSong.id, index)" v-for="(item, index) in cloudSongs" :key="index">
+        <div class="list-item" @dblclick="play(item.simpleSong?.id || item.songId, index)" v-for="(item, index) in cloudSongs" :key="item.songId || index">
             <div class="item-info">
-                <div class="item-img" @click="fileEdit(item.simpleSong)">
-                    <img v-lazy :src="item.simpleSong.al.picUrl + '?param=90y90'" alt="">
+                <div class="item-img" @click="fileEdit(item.simpleSong || { id: item.songId })">
+                    <img v-lazy :src="(item.simpleSong?.al?.picUrl || item.simpleSong?.album?.picUrl || '') ? (item.simpleSong?.al?.picUrl || item.simpleSong?.album?.picUrl) + '?param=90y90' : ''" alt="">
                 </div>
                 <div class="info">
-                    <div class="item-name">{{item.songName}}
-                        <span class="item-name2">&nbsp;({{item.fileName}})</span>
+                    <div class="item-name">{{item.songName || item.fileName}}
+                        <span class="item-name2" v-if="item.fileName && item.fileName !== item.songName">&nbsp;({{item.fileName}})</span>
                     </div>
                     <div class="item-other">
                         <span class="item-time">{{addTime(item.addTime)}}</span>
-                        <span class="item-size">{{(item.fileSize / 1024 / 1024).toFixed(1)}}MB</span>
+                        <span class="item-size">{{((item.fileSize || 0) / 1024 / 1024).toFixed(1)}}MB</span>
                     </div>
                 </div>
             </div>
-            <div class="item-check" :class="{'item-check-selected': (selectedSongs || []).findIndex((song) => song.id == item.simpleSong.id) != -1}" @click="fileEdit(item.simpleSong)">
+            <div class="item-check" :class="{'item-check-selected': (selectedSongs || []).findIndex((song) => song.id == (item.simpleSong?.id || item.songId)) != -1}" @click="fileEdit(item.simpleSong || { id: item.songId })">
                 <svg t="1671452723182" class="icon" viewBox="0 0 1498 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="1965" width="200" height="200"><path d="M618.396098 1024L0 403.605854l140.862439-141.861464 477.533659 479.531708L1357.674146 0 1498.536585 140.862439l-880.140487 883.137561z" p-id="1966" fill="#ffffff"></path></svg>
             </div>
         </div>

@@ -44,7 +44,13 @@ function normSong(s) {
   }
 }
 
-function getCoverUrl(song) { return song?.al?.picUrl || '' }
+function getCoverUrl(song) {
+  const raw = song?.al?.picUrl || song?.picUrl || ''
+  if (!raw) return ''
+  if (raw.startsWith('data:')) return raw
+  const base = raw.split('?')[0]
+  return base ? `${base}?param=1024y1024` : raw
+}
 function getArtistNames(ar) { return ar?.length ? ar.map(a => a?.name || a).join(' / ') : '' }
 
 // 歌词解析
@@ -296,7 +302,7 @@ onUnmounted(() => {
             <span class="corner c1"></span><span class="corner c2"></span>
             <span class="corner c3"></span><span class="corner c4"></span>
             <Transition name="fm-fade" mode="out-in">
-              <img :key="currentFmSong.id" :src="getCoverUrl(currentFmSong) + '?param=500y500'" @error="$event.target.style.display='none'" alt="">
+              <img :key="currentFmSong.id" :src="getCoverUrl(currentFmSong)" @error="$event.target.style.display='none'" alt="">
             </Transition>
           </div>
         </div>

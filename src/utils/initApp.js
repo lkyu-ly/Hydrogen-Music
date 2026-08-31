@@ -27,6 +27,7 @@ function applySettingsPayload(settings) {
     if (Object.prototype.hasOwnProperty.call(m, 'coverBlur')) playerStore.coverBlur = !!m.coverBlur
     if (Object.prototype.hasOwnProperty.call(m, 'lyricBlur')) playerStore.lyricBlur = !!m.lyricBlur
     if (Object.prototype.hasOwnProperty.call(m, 'musicVideo')) playerStore.musicVideo = !!m.musicVideo
+    if (Object.prototype.hasOwnProperty.call(m, 'lyricCompletion')) playerStore.lyricCompletion = !!m.lyricCompletion
     localSotre.downloadedFolderSettings = settings.local?.downloadFolder
     localSotre.localFolderSettings = settings.local?.localFolder || []
     localSotre.quitApp = settings.other?.quitApp

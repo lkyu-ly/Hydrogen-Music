@@ -1,100 +1,317 @@
 <script setup>
-  import { ref, onMounted } from 'vue'
-  import dayjs from 'dayjs';
-  import VueSlider from 'vue-slider-component'
-  import { noticeOpen } from '../utils/dialog'
-  import { uploadCloudSong } from '../api/cloud'
-  import CloudFileList from '../components/CloudFileList.vue'
-  import { useUserStore } from '../store/userStore'
-  import { useCloudStore } from '../store/cloudStore';
-  import { storeToRefs } from 'pinia';
-  const userStore = useUserStore()
-  const cloudStore = useCloudStore()
-  const { count, size, maxSize, cloudSongs } = storeToRefs(cloudStore)
+import { ref, onMounted, onUnmounted, computed } from 'vue'
+import dayjs from 'dayjs'
+import VueSlider from 'vue-slider-component'
+import { noticeOpen } from '../utils/dialog'
+import { uploadCloudSong } from '../api/cloud'
+import CloudFileList from '../components/CloudFileList.vue'
+import { useUserStore } from '../store/userStore'
+import { useCloudStore } from '../store/cloudStore'
+import { storeToRefs } from 'pinia'
 
-  const isUploading = ref(false)
-  const uploadCloudDiskFile = ref()
-  const fileUpdateTime = {}
-  let fileLength = 0
-  let uploadDone = 0
+const userStore = useUserStore()
+const cloudStore = useCloudStore()
+const { count, size, maxSize, cloudSongs } = storeToRefs(cloudStore)
 
-  // 单个文件到达终态（成功/放弃/异常）时计数，全部结束后刷新云盘列表与容量
-  const finishOne = () => {
-    uploadDone++
-    if (fileLength && uploadDone >= fileLength) {
-      uploadDone = 0
-      noticeOpen('上传完毕，正在刷新列表', 2)
-      cloudStore.refresh().catch(() => {})
-    }
-  }
+const isUploading = ref(false)
+const uploadTotalFiles = ref(0)
+const uploadCompletedFiles = ref(0)
+const uploadOverallProgress = ref(0)
+const uploadCurrentSpeed = ref('0 KB/s')
 
-  onMounted(() => {
-    typeChange(1)
-    if(uploadCloudDiskFile.value) uploadCloudDiskFile.value.addEventListener('change', function (e) {
-      let currentIndx = 0
-      fileLength = this.files.length
-      uploadDone = 0
-      for (const item of this.files) {
-        currentIndx += 1
-        upload(item, currentIndx)
-      }
-    })
+const isDragOver = ref(false)
+const dragHasFiles = ref(false)
+const dragHasSupported = ref(false)
+const dragDetermined = ref(false)
+const uploadCloudDiskFile = ref()
+let changeHandler = null
+
+const typeSelect = ref(1)
+
+function typeChange(num) {
+  typeSelect.value = num
+  cloudStore.refresh().catch(() => {
+    noticeOpen('云盘数据获取失败', 2)
   })
+}
 
-  const typeSelect = ref(1)
+const supportedExt = new Set(['mp3', 'aac', 'wma', 'wav', 'ogg', 'm4a', 'ape', 'flac', 'cue'])
+const extractExt = (name) => (name?.split('.').pop() || '').toLowerCase()
 
-  function typeChange(num) {
-    typeSelect.value = num
-    if(num == 1) {
-      // 列表与容量统一走 cloudStore.refresh（重置分页）
-      cloudStore.refresh().catch(() => {
-        noticeOpen("云盘数据获取失败", 2)
-      })
+// 单文件最大上传限制 (500MB)
+const MAX_SINGLE_FILE_SIZE = 500 * 1024 * 1024
+
+// 本地大文件与格式校验拦截
+function filterValidFiles(rawFiles) {
+  const validFiles = []
+  for (const file of rawFiles) {
+    if (!supportedExt.has(extractExt(file.name))) {
+      noticeOpen(`不支持的文件格式：${file.name}`, 3)
+      continue
     }
+    if (file.size > MAX_SINGLE_FILE_SIZE) {
+      noticeOpen(`文件过大拦截上传：${file.name} (单文件上限 500MB，当前 ${(file.size / 1024 / 1024).toFixed(1)}MB)`, 3)
+      continue
+    }
+    const remainingGB = (maxSize.value || 0) - (size.value || 0)
+    if (remainingGB > 0 && file.size > remainingGB * 1024 * 1024 * 1024) {
+      noticeOpen(`云盘剩余容量不足以容纳：${file.name}`, 3)
+      continue
+    }
+    validFiles.push(file)
   }
-  const uploadFile = () => {
-    uploadCloudDiskFile.value.click()
-  }
-  function upload(file, currentIndx) {
-    var formData = new FormData()
-    formData.append('songFile', file)
-    isUploading.value = true
-    uploadCloudSong(formData).then(res => {
-      if(res.code == 200) {
-        noticeOpen(`${file.name} 上传成功`, 2)
-        finishOne()
-        if (currentIndx >= fileLength) {
-          formData = null
-          // 重置文件选择框，否则同名文件无法再次上传（原代码误用 this.files）
-          if(uploadCloudDiskFile.value) uploadCloudDiskFile.value.value = ''
+  return validFiles
+}
+
+const analyzeDragItems = (dt) => {
+  const types = Array.from(dt?.types || [])
+  const isFiles = types.includes('Files')
+  dragHasFiles.value = isFiles
+  let hasKnownSupported = false
+  let hasKnownUnsupported = false
+  let sawUnknown = false
+  if (isFiles) {
+    const items = Array.from(dt?.items || [])
+    if (items.length) {
+      for (const it of items) {
+        if (it.kind !== 'file') continue
+        const mime = it.type || ''
+        if (mime) {
+          if (mime.startsWith('audio/')) {
+            hasKnownSupported = true
+            continue
+          }
+          hasKnownUnsupported = true
+          continue
         }
-      } else {
-        fileUpdateTime[file.name] ? fileUpdateTime[file.name] += 1 : fileUpdateTime[file.name] = 1
-        if (fileUpdateTime[file.name] >= 4) {
-          noticeOpen(`上传失败：${file.name}`, 3)
-          finishOne()
-          return
-        } else {
-          noticeOpen(`${file.name} 失败 ${fileUpdateTime[file.name]} 次`, 3)
-          // 延迟重试，避免立即递归重试打满请求
-          setTimeout(() => { upload(file, currentIndx) }, 2000)
-          return
+        try {
+          const f = it.getAsFile?.()
+          if (f && f.name) {
+            const ext = extractExt(f.name)
+            if (supportedExt.has(ext)) hasKnownSupported = true
+            else hasKnownUnsupported = true
+          } else {
+            sawUnknown = true
+          }
+        } catch (_) {
+          sawUnknown = true
         }
       }
-    }).catch(() => {
-      noticeOpen(`上传失败：${file.name}`, 3)
-      finishOne()
-    }).finally(() => {
-      isUploading.value = false
-    })
+    } else {
+      sawUnknown = true
+    }
   }
-  const addTime =(time) => {
-    return dayjs(time).format("YYYY-MM-DD HH:mm:ss")
+  if (hasKnownSupported) {
+    dragHasSupported.value = true
+    dragDetermined.value = true
+  } else if (hasKnownUnsupported && !sawUnknown) {
+    dragHasSupported.value = false
+    dragDetermined.value = true
+  } else {
+    dragHasSupported.value = true
+    dragDetermined.value = false
   }
+}
+
+const handleDragEnter = (e) => {
+  e.preventDefault()
+  e.stopPropagation()
+  analyzeDragItems(e.dataTransfer)
+  isDragOver.value = dragHasFiles.value && !isUploading.value
+}
+
+const handleDragOver = (e) => {
+  e.preventDefault()
+  e.stopPropagation()
+  analyzeDragItems(e.dataTransfer)
+  isDragOver.value = dragHasFiles.value && !isUploading.value
+  try {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+  } catch (_) {}
+}
+
+const handleDragLeave = (e) => {
+  e.preventDefault()
+  e.stopPropagation()
+  isDragOver.value = false
+}
+
+const handleDrop = async (e) => {
+  e.preventDefault()
+  e.stopPropagation()
+  isDragOver.value = false
+  if (isUploading.value) {
+    noticeOpen('正在上传，请稍后再试', 2)
+    return
+  }
+  const list = Array.from(e.dataTransfer?.files || [])
+  const validFiles = filterValidFiles(list)
+  if (!validFiles.length) return
+  await uploadFilesParallel(validFiles)
+  typeChange(1)
+}
+
+const dropOverlayTitle = computed(() => (dragDetermined.value && !dragHasSupported.value) ? 'UNSUPPORTED' : 'DROP TO UPLOAD')
+const dropOverlaySub = computed(() => (dragDetermined.value && !dragHasSupported.value) ? '不支持的文件类型' : '释放文件开始上传')
+
+const uploadStatusText = computed(() => {
+  if (!isUploading.value) return ''
+  if (uploadOverallProgress.value >= 98 && uploadCompletedFiles.value < uploadTotalFiles.value) {
+    return '正在写入云盘并转码入库...'
+  }
+  return `并行加速上传中 (${uploadCompletedFiles.value}/${uploadTotalFiles.value})`
+})
+
+const uploadFile = () => {
+  if (uploadCloudDiskFile.value) uploadCloudDiskFile.value.click()
+}
+
+function formatSpeed(bytesPerSec) {
+  if (!bytesPerSec || bytesPerSec <= 0) return '0 KB/s'
+  if (bytesPerSec >= 1024 * 1024) {
+    return (bytesPerSec / (1024 * 1024)).toFixed(2) + ' MB/s'
+  }
+  return (bytesPerSec / 1024).toFixed(1) + ' KB/s'
+}
+
+async function uploadSingle(file, index, onProgress) {
+  const formData = new FormData()
+  formData.append('songFile', file)
+  const res = await uploadCloudSong(formData, onProgress)
+  if (res && (res.code === 200 || res.status === 200 || res.songId)) return res
+  throw new Error(res?.msg || res?.message || '上传失败')
+}
+
+// 并行上传引擎 (支持并发池、实时速率测算与总体进度条)
+async function uploadFilesParallel(files, concurrency = 3) {
+  if (!files || !files.length) return
+  isUploading.value = true
+  uploadTotalFiles.value = files.length
+  uploadCompletedFiles.value = 0
+  uploadOverallProgress.value = 0
+  uploadCurrentSpeed.value = '0 KB/s'
+
+  const totalBytes = files.reduce((sum, f) => sum + (f.size || 1024 * 1024), 0)
+  const fileLoadedBytes = new Array(files.length).fill(0)
+
+  let lastTime = Date.now()
+  let lastTotalLoaded = 0
+
+  const speedInterval = setInterval(() => {
+    const now = Date.now()
+    const timeDelta = (now - lastTime) / 1000
+    if (timeDelta >= 0.2) {
+      const currentLoaded = fileLoadedBytes.reduce((sum, b) => sum + b, 0)
+      const bytesDelta = Math.max(0, currentLoaded - lastTotalLoaded)
+      const speed = bytesDelta / timeDelta
+      uploadCurrentSpeed.value = formatSpeed(speed)
+      lastTime = now
+      lastTotalLoaded = currentLoaded
+
+      if (totalBytes > 0) {
+        uploadOverallProgress.value = Math.min(99, Math.floor((currentLoaded / totalBytes) * 100))
+      }
+    }
+  }, 200)
+
+  let successCount = 0
+  let failCount = 0
+  let queueIndex = 0
+
+  const worker = async () => {
+    while (queueIndex < files.length) {
+      const index = queueIndex++
+      const file = files[index]
+      const maxRetries = 3
+      let attempt = 0
+
+      while (attempt < maxRetries) {
+        try {
+          await uploadSingle(file, index, (e) => {
+            if (e && e.loaded != null) {
+              fileLoadedBytes[index] = Math.min(e.loaded, file.size || e.loaded)
+            }
+          })
+          fileLoadedBytes[index] = file.size || fileLoadedBytes[index]
+          successCount++
+          noticeOpen(`${file.name} 上传成功`, 2)
+          break
+        } catch (err) {
+          attempt += 1
+          if (attempt >= maxRetries) {
+            failCount++
+            noticeOpen(`上传失败：${file.name}`, 3)
+          } else {
+            noticeOpen(`${file.name} 失败 ${attempt} 次，重试中...`, 3)
+            await new Promise(r => setTimeout(r, 800 * attempt))
+          }
+        }
+      }
+
+      uploadCompletedFiles.value++
+    }
+  }
+
+  try {
+    const workers = []
+    const actualConcurrency = Math.min(concurrency, files.length)
+    for (let i = 0; i < actualConcurrency; i++) {
+      workers.push(worker())
+    }
+    await Promise.all(workers)
+
+    uploadOverallProgress.value = 100
+    if (successCount > 0 && failCount === 0) {
+      noticeOpen(`全部 ${successCount} 首歌曲上传完毕`, 2)
+    } else if (successCount > 0) {
+      noticeOpen(`上传完成：${successCount} 成功，${failCount} 失败`, 2)
+    } else {
+      noticeOpen('上传未成功，请检查音频格式或网络', 3)
+    }
+  } finally {
+    clearInterval(speedInterval)
+    uploadCurrentSpeed.value = '0 KB/s'
+    isUploading.value = false
+    await cloudStore.refresh().catch(() => {})
+  }
+}
+
+onMounted(() => {
+  typeChange(1)
+  changeHandler = async () => {
+    const input = uploadCloudDiskFile.value
+    if (!input) return
+    const files = Array.from(input.files || [])
+    if (!files.length) return
+    const validFiles = filterValidFiles(files)
+    if (validFiles.length) {
+      await uploadFilesParallel(validFiles)
+    }
+    try {
+      input.value = ''
+    } catch (_) {}
+    typeChange(1)
+  }
+  if (uploadCloudDiskFile.value) {
+    uploadCloudDiskFile.value.addEventListener('change', changeHandler)
+  }
+})
+
+onUnmounted(() => {
+  if (uploadCloudDiskFile.value && changeHandler) {
+    try {
+      uploadCloudDiskFile.value.removeEventListener('change', changeHandler)
+    } catch (_) {}
+  }
+})
+
+const addTime = (time) => {
+  return dayjs(time).format('YYYY-MM-DD HH:mm:ss')
+}
 </script>
 
 <template>
-  <div class="cloud-disk" v-if=userStore.cloudDiskPage>
+  <div class="cloud-disk" v-if="userStore.cloudDiskPage">
     <div class="disk-left">
       <div class="disk-title">
         <div class="title-tip"></div>
@@ -147,7 +364,7 @@
         </div>
         <div class="disk-info" v-if="cloudSongs">
           <div class="info-container">
-          <div class="info-title">云盘信息</div>
+            <div class="info-title">云盘信息</div>
             <div class="info-list">
               <div class="info-item">
                 <div class="item-lable">当前用户</div>
@@ -157,18 +374,18 @@
                 <div class="item-lable">云盘容量</div>
                 <div class="disk-capacity">
                   <div class="capacity">
-                    <vue-slider id="widget-progress" class="cloud-capacity"  v-model="size" :min="0" :max="maxSize" :interval="0.1" :duration="0.5" tooltip="none" :clickable="false"></vue-slider>
+                    <vue-slider id="widget-progress" class="cloud-capacity" v-model="size" :min="0" :max="maxSize" :interval="0.1" :duration="0.5" tooltip="none" :clickable="false"></vue-slider>
                   </div>
                   <div class="capacity-num">{{ size }}G / {{ maxSize }}G</div>
                 </div>
               </div>
               <div class="info-item">
                 <div class="item-lable">文件数量</div>
-                <div class="item-info">{{count}} 个</div>
+                <div class="item-info">{{ count }} 个</div>
               </div>
               <div class="info-item">
                 <div class="item-lable">上次添加</div>
-                <div class="item-info" v-if=cloudSongs[0]>{{addTime(cloudSongs[0].addTime)}}</div>
+                <div class="item-info" v-if="cloudSongs[0]">{{ addTime(cloudSongs[0].addTime) }}</div>
                 <div class="item-info" v-else>NONE</div>
               </div>
             </div>
@@ -181,7 +398,14 @@
         <svg class="tab-back1" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="2927" width="200" height="200"><path d="M513.024 65.536q93.184 0 175.616 35.84t143.872 97.28 97.28 143.872 35.84 175.616q0 94.208-35.84 176.64t-97.28 143.872-143.872 97.28-175.616 35.84q-94.208 0-176.64-35.84t-143.872-97.28-97.28-143.872-35.84-176.64q0-93.184 35.84-175.616t97.28-143.872 143.872-97.28 176.64-35.84zM513.024 909.312q80.896 0 152.064-30.72t124.416-83.968 83.968-124.416 30.72-152.064-30.72-152.064-83.968-124.416-124.416-83.968-152.064-30.72q-81.92 0-153.088 30.72t-124.416 83.968-83.968 124.416-30.72 152.064 30.72 152.064 83.968 124.416 124.416 83.968 153.088 30.72zM513.024 190.464q66.56 0 124.928 25.088t102.4 69.12 69.12 102.4 25.088 124.928-25.088 125.44-69.12 102.912-102.4 69.12-124.928 25.088-125.44-25.088-102.912-69.12-69.12-102.912-25.088-125.44 25.088-124.928 69.12-102.4 102.912-69.12 125.44-25.088z" p-id="2928" fill="#ffffff"></path></svg>
         <div class="tab-back2">INFO</div>
       </div>
-      <div class="disk-upload">
+      <div
+        class="disk-upload"
+        :class="{ dragover: isDragOver }"
+        @dragenter="handleDragEnter"
+        @dragleave="handleDragLeave"
+        @dragover="handleDragOver"
+        @drop="handleDrop"
+      >
         <Transition name="upload-fade">
           <div class="upload" @click.stop="uploadFile()" v-show="!isUploading">
             <div class="upload-icon">
@@ -194,11 +418,25 @@
         </Transition>
         <Transition name="upload-fade">
           <div class="upload-animation" v-show="isUploading">
-            <span class="uploading-title">上传中...</span>
-            <span class="uploading-subtitle">上传完成后可能需要转码，请稍后刷新查看</span>
+            <div class="upload-progress-container">
+              <div class="upload-progress-header">
+                <span class="uploading-title">上传中 ({{ uploadCompletedFiles }}/{{ uploadTotalFiles }})</span>
+                <span class="uploading-speed">{{ uploadOverallProgress }}% · {{ uploadCurrentSpeed }}</span>
+              </div>
+              <div class="upload-progress-bar">
+                <div class="upload-progress-fill" :style="{ width: uploadOverallProgress + '%' }"></div>
+              </div>
+              <span class="uploading-subtitle">{{ uploadStatusText }}</span>
+            </div>
             <div class="animation"></div>
           </div>
         </Transition>
+        <div v-show="isDragOver" :class="{ unsupported: dragDetermined && !dragHasSupported }" class="drop-overlay">
+          <div class="overlay-inner">
+            <div class="overlay-title">{{ dropOverlayTitle }}</div>
+            <div class="overlay-sub">{{ dropOverlaySub }}</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -209,290 +447,473 @@
 </template>
 
 <style scoped lang="scss">
-  .cloud-disk{
-    width: 100%;
-    height: calc(100% - 110Px);
-    display: flex;
-    flex-direction: row;
-    .disk-left{
-      width: 55%;
-      max-width: 450Px;
-      height: 100%;
-      .disk-title{
-        margin-bottom: 5Px;
+.cloud-disk {
+  width: 100%;
+  height: calc(100% - 110Px);
+  display: flex;
+  flex-direction: row;
+
+  .disk-left {
+    width: 55%;
+    max-width: 450Px;
+    height: 100%;
+
+    .disk-title {
+      margin-bottom: 5Px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+
+      .title-tip {
+        margin-right: 5Px;
+        width: 6Px;
+        height: 6Px;
+        background-color: black;
+      }
+
+      .title-name {
+        font: 16Px SourceHanSansCN-Bold;
+        text-align: left;
+        color: black;
         display: flex;
         flex-direction: row;
-        align-items: center;
-        .title-tip{
-          margin-right: 5Px;
-          width: 6Px;
-          height: 6Px;
-          background-color: black;
-        }
-        .title-name{
-          font: 16Px SourceHanSansCN-Bold;
-          text-align: left;
-          color: black;
-          display: flex;
-          flex-direction: row;
-        }
       }
-      .disk-tab{
-        height: calc(78% - 29Px);
-        background-color: rgba(255, 255, 255, 0.30);
-        position: relative;
-        .file-type{
-          height: 55%;
-          padding: 22Px 12Px 10Px 10Px;
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          align-content: space-evenly;
-          .type{
-            transition: 0.2s;
-            &:hover{
-              cursor: pointer;
-            }
-            .type-icon{
-              display: flex;
-              justify-content: center;
-              position: relative;
-              .icon{
-                width: 35Px;
-                height: 35Px;
-              }
-              .type-select{
-                width: 60Px;
-                height: 45Px;
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%,-50%);
-                opacity: 0;
-              }
-              .type-selected{
-                animation: type-selected 0.35s ease-out forwards;
-              }
-              @keyframes type-selected {
-                0%{width: 75Px;height: 60Px;}
-                40%{width: 65Px;height: 45Px;opacity: 0.8;}
-                60%{width: 65Px;height: 45Px;opacity: 0.8;}
-                100%{width: 55Px;height: 45Px;opacity: 0.8;}
-              }
-            }
-            .type-name{
-              margin-top: 10Px;
-              font: 12Px SourceHanSanSCN-Bold;
-              color: black;
-            }
+    }
+
+    .disk-tab {
+      height: calc(78% - 29Px);
+      background-color: rgba(255, 255, 255, 0.30);
+      position: relative;
+
+      .file-type {
+        height: 55%;
+        padding: 22Px 12Px 10Px 10Px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        align-content: space-evenly;
+
+        .type {
+          transition: 0.2s;
+
+          &:hover {
+            cursor: pointer;
           }
-        }
-        .disk-info{
-          padding: 10Px;
-          height: 45%;
-          .info-container{
-            width: 100%;
-            height: 100%;
-            padding: 5Px 7Px;
-            background-color: rgba(255, 255, 255, 0.5);
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            .info-title{
-              font: 9Px SourceHanSansCN-Bold;
-              text-align: left;
-              color: rgba(255, 255, 255, 0.9);
-              background-color: black;
-              padding: 1Px 4Px;
-            }
-            .info-list{
-              height: 100%;
-              padding: 0 4Px;
-              display: flex;
-              flex-direction: column;
-              justify-content: space-evenly;
-              .info-item{
-                display: flex;
-                flex-direction: row;
-                align-items: center;
-                .item-lable{
-                  margin-right: 6Px;
-                  font: 12Px SourceHanSansCN-Bold;
-                  color: black;
-                  white-space: nowrap;
-                }
-                .item-info{
-                  font: 10Px SourceHanSansCN-Bold;
-                  color: black;
-                }
-                .disk-capacity{
-                  width: 100%;
-                  display: flex;
-                  align-items: center;
-                  .capacity{
-                    margin-right: 6Px;
-                    width: 100%;
-                    position: relative;
-                    .cloud-capacity{
-                      height: 7Px !important;
-                      box-shadow: 0 0 0 0.5Px black !important;
-                    }
-                  }
-                  .capacity-num{
-                    text-align: left;
-                    white-space: nowrap;
-                    font: 9Px SourceHanSansCN-Bold;
-                    color: black;
-                  }
-                }
-              }
-            }
-            .info-footer{
-              .footer-line{
-                height: 0.5Px;
-                background-color: black;
-              }
-              .footer-title{
-                font: 9Px Source Han Sans;
-                color: rgb(181, 181, 181);
-                text-align: right;
-              }
-            }
-          }
-        }
-        .tab-back1{
-          width: 16Px;
-          height: 16Px;
-          position: absolute;
-          top: 10Px;
-          left: 10Px;
-          opacity: 0.6;
-        }
-        .tab-back2{
-          font: 38Px SourceHanSansCN-Bold;
-          color: white;
-          position: absolute;
-          top: 0;
-          right: 10px;
-          opacity: 0.2;
-          pointer-events: none;
-        }
-      }
-      .disk-upload{
-        margin-top: 10Px;
-        width: 100%;
-        height: calc(22% - 10Px);
-        background-color: rgba(255, 255, 255, 0.30);
-        position: relative;
-        transition: 0.2s;
-        &:hover{
-          cursor: pointer;
-          background-color: rgba(255, 255, 255, 0.50);
-        }
-        &:active{
-          background-color: rgba(255, 255, 255, 0.30);
-        }
-        .upload{
-          width: 100%;
-          height: 100%;
-          display: flex;
-          flex-direction: row;
-          justify-content: center;
-          align-items: center;
-          position: absolute;
-          .upload-icon{
-            margin-right: 12Px;
-            width: 45Px;
-            height: 45Px;
-            position: relative;
+
+          .type-icon {
             display: flex;
             justify-content: center;
-            align-items: center;
-            .icon1{
-              width: 100%;
-              height: 100%;
-              opacity: 0.7;
-              position: absolute;
-              animation: upload-icon 12s linear infinite;
+            position: relative;
+
+            .icon {
+              width: 35Px;
+              height: 35Px;
             }
-            .icon2{
-              width: 70%;
-              height: 70%;
+
+            .type-select {
+              width: 60Px;
+              height: 45Px;
               position: absolute;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%);
+              opacity: 0;
             }
-            @keyframes upload-icon {
-              0%{transform: rotate(0);}
-              100%{transform: rotate(360deg);}
+
+            .type-selected {
+              animation: type-selected 0.35s ease-out forwards;
+            }
+
+            @keyframes type-selected {
+              0% {
+                width: 75Px;
+                height: 60Px;
+              }
+              40% {
+                width: 65Px;
+                height: 45Px;
+                opacity: 0.8;
+              }
+              60% {
+                width: 65Px;
+                height: 45Px;
+                opacity: 0.8;
+              }
+              100% {
+                width: 55Px;
+                height: 45Px;
+                opacity: 0.8;
+              }
             }
           }
-          .upload-title{
-            font: 20Px Sours Han Sans;
-            color: rgb(130, 130, 130);
-            font-weight: lighter;
+
+          .type-name {
+            margin-top: 10Px;
+            font: 12Px SourceHanSanSCN-Bold;
+            color: black;
           }
         }
-        $uploadColor: rgb(255, 255, 255, 0.1);
-        .upload-animation{
+      }
+
+      .disk-info {
+        padding: 10Px;
+        height: 45%;
+
+        .info-container {
           width: 100%;
           height: 100%;
+          padding: 5Px 7Px;
+          background-color: rgba(255, 255, 255, 0.5);
           display: flex;
           flex-direction: column;
-          justify-content: center;
-          align-items: center;
-          position: absolute;
-          overflow: hidden;
-          pointer-events: none;
-          background: linear-gradient(135deg, #0000 25%, $uploadColor 0, $uploadColor 50%, #0000 0, #0000 75%, $uploadColor 0);
-          background-size: 15px 15px;
-          animation: upload-background 20s linear infinite;
-          @keyframes upload-background {
-            0%{background-position: 0%;}
-            100%{background-position: 100%;}
-          }
-          .uploading-title{
-            font: 20Px Sours Han Sans;
-            color: rgb(130, 130, 130);
-            font-weight: lighter;
-          }
-          .uploading-subtitle{
-            font: 12Px Sours Han Sans;
-            color: rgb(130, 130, 130);
-            font-weight: lighter;
-          }
-          .animation{
-            width: 10%;
-            height: 1Px;
+          justify-content: space-between;
+
+          .info-title {
+            font: 9Px SourceHanSansCN-Bold;
+            text-align: left;
+            color: rgba(255, 255, 255, 0.9);
             background-color: black;
-            position: absolute;
-            top: 0;
-            left: 10%;
-            animation: upload-animation 3s infinite;
-            transform: rotate(180deg);
-            @keyframes upload-animation {
-              0%{width: 0%;left: 120%;}
-              40%{width: 150%;left: 120%;}
-              65%{width: 0%;left: -30%;}
-              85%{width: 60%;}
-              100%{width: 0%;left: 120%;}
+            padding: 1Px 4Px;
+          }
+
+          .info-list {
+            height: 100%;
+            padding: 0 4Px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-evenly;
+
+            .info-item {
+              display: flex;
+              flex-direction: row;
+              align-items: center;
+
+              .item-lable {
+                margin-right: 6Px;
+                font: 12Px SourceHanSansCN-Bold;
+                color: black;
+                white-space: nowrap;
+              }
+
+              .item-info {
+                font: 10Px SourceHanSansCN-Bold;
+                color: black;
+              }
+
+              .disk-capacity {
+                width: 100%;
+                display: flex;
+                align-items: center;
+
+                .capacity {
+                  margin-right: 6Px;
+                  width: 100%;
+                  position: relative;
+
+                  .cloud-capacity {
+                    height: 7Px !important;
+                    box-shadow: 0 0 0 0.5Px black !important;
+                    pointer-events: none;
+                  }
+                }
+
+                .capacity-num {
+                  text-align: left;
+                  white-space: nowrap;
+                  font: 9Px SourceHanSansCN-Bold;
+                  color: black;
+                }
+              }
+            }
+          }
+
+          .info-footer {
+            .footer-line {
+              height: 0.5Px;
+              background-color: black;
+            }
+
+            .footer-title {
+              font: 9Px Source Han Sans;
+              color: rgb(181, 181, 181);
+              text-align: right;
             }
           }
         }
       }
+
+      .tab-back1 {
+        width: 16Px;
+        height: 16Px;
+        position: absolute;
+        top: 10Px;
+        left: 10Px;
+        opacity: 0.6;
+      }
+
+      .tab-back2 {
+        font: 38Px SourceHanSansCN-Bold;
+        color: white;
+        position: absolute;
+        top: 0;
+        right: 10px;
+        opacity: 0.2;
+        pointer-events: none;
+      }
     }
-    .disk-right{
-      margin-top: 29Px;
-      margin-left: 50Px;
+
+    .disk-upload {
+      margin-top: 10Px;
       width: 100%;
-      height: calc(100% - 29Px);
+      height: calc(22% - 10Px);
+      background-color: rgba(255, 255, 255, 0.30);
+      position: relative;
+      transition: 0.2s;
+
+      &:hover {
+        cursor: pointer;
+        background-color: rgba(255, 255, 255, 0.50);
+      }
+
+      &.dragover {
+        background-color: rgba(255, 255, 255, 0.55);
+        outline: 1Px dashed black;
+        outline-offset: -6Px;
+
+        .upload {
+          opacity: 0;
+        }
+      }
+
+      &:active {
+        background-color: rgba(255, 255, 255, 0.30);
+      }
+
+      .upload {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: row;
+        justify-content: center;
+        align-items: center;
+        position: absolute;
+
+        .upload-icon {
+          margin-right: 12Px;
+          width: 45Px;
+          height: 45Px;
+          position: relative;
+          display: flex;
+          justify-content: center;
+          align-items: center;
+
+          .icon1 {
+            width: 100%;
+            height: 100%;
+            opacity: 0.7;
+            position: absolute;
+            animation: upload-icon 12s linear infinite;
+          }
+
+          .icon2 {
+            width: 70%;
+            height: 70%;
+            position: absolute;
+          }
+
+          @keyframes upload-icon {
+            0% {
+              transform: rotate(0);
+            }
+            100% {
+              transform: rotate(360deg);
+            }
+          }
+        }
+
+        .upload-title {
+          font: 20Px Sours Han Sans;
+          color: rgb(130, 130, 130);
+          font-weight: lighter;
+        }
+      }
+
+      $uploadColor: rgb(255, 255, 255, 0.1);
+
+      .upload-animation {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        position: absolute;
+        overflow: hidden;
+        pointer-events: none;
+        background: linear-gradient(135deg, #0000 25%, $uploadColor 0, $uploadColor 50%, #0000 0, #0000 75%, $uploadColor 0);
+        background-size: 15px 15px;
+        animation: upload-background 20s linear infinite;
+        @keyframes upload-background {
+          0% {
+            background-position: 0%;
+          }
+          100% {
+            background-position: 100%;
+          }
+        }
+
+        .upload-progress-container {
+          width: 82%;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          z-index: 2;
+
+          .upload-progress-header {
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-bottom: 6Px;
+
+            .uploading-title {
+              font: 14Px SourceHanSansCN-Bold;
+              color: black;
+            }
+
+            .uploading-speed {
+              font: 11Px Geometos;
+              color: rgb(80, 80, 80);
+              letter-spacing: 0.5Px;
+            }
+          }
+
+          .upload-progress-bar {
+            width: 100%;
+            height: 6Px;
+            background: rgba(0, 0, 0, 0.08);
+            box-shadow: inset 0 0.5Px 1Px rgba(0, 0, 0, 0.15);
+            border-radius: 3Px;
+            overflow: hidden;
+            position: relative;
+            margin-bottom: 6Px;
+
+            .upload-progress-fill {
+              height: 100%;
+              background: black;
+              transition: width 0.2s ease-out;
+            }
+          }
+
+          .uploading-subtitle {
+            font: 11Px SourceHanSansCN-Bold;
+            color: rgb(130, 130, 130);
+            text-align: center;
+          }
+        }
+
+        .animation {
+          width: 10%;
+          height: 1Px;
+          background-color: black;
+          position: absolute;
+          top: 0;
+          left: 10%;
+          animation: upload-animation 3s infinite;
+          transform: rotate(180deg);
+          @keyframes upload-animation {
+            0% {
+              width: 0%;
+              left: 120%;
+            }
+            40% {
+              width: 150%;
+              left: 120%;
+            }
+            65% {
+              width: 0%;
+              left: -30%;
+            }
+            85% {
+              width: 60%;
+            }
+            100% {
+              width: 0%;
+              left: 120%;
+            }
+          }
+        }
+      }
+
+      .drop-overlay {
+        position: absolute;
+        inset: 0;
+        z-index: 3;
+        pointer-events: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(135deg, #0000 25%, rgba(255, 255, 255, 0.12) 0, rgba(255, 255, 255, 0.12) 50%, #0000 0, #0000 75%, rgba(255, 255, 255, 0.12) 0);
+        background-size: 14px 14px;
+        animation: drop-overlay-bg 12s linear infinite;
+        @keyframes drop-overlay-bg {
+          0% {
+            background-position: 0%;
+          }
+          100% {
+            background-position: 100%;
+          }
+        }
+
+        .overlay-inner {
+          text-align: center;
+          transform: translateY(-2px);
+        }
+
+        .overlay-title {
+          font: 18Px SourceHanSansCN-Bold;
+          letter-spacing: 1Px;
+          color: black;
+        }
+
+        .overlay-sub {
+          margin-top: 2Px;
+          font: 11Px SourceHanSansCN-Bold;
+          color: rgba(0, 0, 0, 0.75);
+        }
+
+        &.unsupported {
+          outline: 1Px dashed black;
+          outline-offset: -6Px;
+
+          .overlay-title {
+            color: #9a2a2a;
+          }
+
+          .overlay-sub {
+            color: #9a2a2a;
+            opacity: 0.85;
+          }
+        }
+      }
     }
-  }
-  .upload-fade-enter-active,
-  .upload-fade-leave-active {
-    transition: 0.3s cubic-bezier(.14,.91,.58,1);
   }
 
-  .upload-fade-enter-from,
-  .upload-fade-leave-to {
-    transform: scale(0.9);
-    opacity: 0;
+  .disk-right {
+    margin-top: 29Px;
+    margin-left: 50Px;
+    width: 100%;
+    height: calc(100% - 29Px);
   }
+}
+
+.upload-fade-enter-active,
+.upload-fade-leave-active {
+  transition: 0.3s cubic-bezier(.14, .91, .58, 1);
+}
+
+.upload-fade-enter-from,
+.upload-fade-leave-to {
+  transform: scale(0.9);
+  opacity: 0;
+}
 </style>

@@ -79,7 +79,7 @@ export function getCloudMatch(params) {
  * @param {*} params 
  * @returns 
  */
-export function uploadCloudSong(formData) {
+export function uploadCloudSong(formData, onUploadProgress) {
     return request({
         url: '/cloud',
         method: 'post',
@@ -90,6 +90,7 @@ export function uploadCloudSong(formData) {
         params: {
             timestamp: new Date().getTime(),
         },
-        timeout: 99999999,
+        onUploadProgress,
+        timeout: 300000,
     })
 }

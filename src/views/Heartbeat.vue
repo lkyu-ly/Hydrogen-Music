@@ -101,13 +101,18 @@ watch(currentFmSong, (s) => {
 
 // 全局播放器自动切歌（歌曲播完/快捷键切歌）时，同步本页展示的 FM 歌曲，
 // 避免"页面还显示上一首、下一首已经开始播放"的脱节
-watch(songId, (id) => {
+watch(songId, async (id) => {
   if (!id) return
   const idx = fmSongs.value.findIndex(s => s.id === id)
-  if (idx === -1 || idx === fmIndex.value) return
-  const prev = fmSongs.value[fmIndex.value]
-  if (prev && prev.id !== id) fmHistory.value.push(prev)
-  fmIndex.value = idx
+  if (idx === -1) return
+  if (idx !== fmIndex.value) {
+    const prev = fmSongs.value[fmIndex.value]
+    if (prev && prev.id !== id) fmHistory.value.push(prev)
+    fmIndex.value = idx
+  }
+  if (fmIndex.value >= fmSongs.value.length - 2) {
+    await fetchMoreFmSongs()
+  }
 })
 
 // 复刻全屏歌词页效果：整条歌词轨道随进度上滚，离当前行越远越模糊，切换按距离级联延迟
@@ -192,14 +197,61 @@ function playCurrentFm() {
   addSong(song.id, 0, true)
 }
 
-function nextFm() {
+function togglePlayFm() {
+  if (playing.value && isFmPlaying.value) {
+    pauseMusic()
+  } else if (!playing.value && isFmPlaying.value && currentMusic.value) {
+    startMusic()
+  } else {
+    playCurrentFm()
+  }
+}
+
+async function fetchMoreFmSongs() {
+  if (loading.value) return
+  try {
+    const res = await getPersonalFM()
+    if (res.code === 200 && res.data?.length) {
+      const newSongs = res.data.map(normSong).filter(s => !fmSongs.value.some(existing => existing.id === s.id))
+      if (newSongs.length) {
+        fmSongs.value.push(...newSongs)
+        if (playerStore.listInfo?.type === 'heartbeat' && playerStore.songList) {
+          playerStore.songList.push(...newSongs)
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[Heartbeat] 预拉取下一批FM失败:', e)
+  }
+}
+
+async function nextFm() {
+  if (currentFmSong.value) fmHistory.value.push(currentFmSong.value)
   if (fmIndex.value < fmSongs.value.length - 1) {
-    if (currentFmSong.value) fmHistory.value.push(currentFmSong.value)
     fmIndex.value++
     playCurrentFm()
+    if (fmIndex.value >= fmSongs.value.length - 2) {
+      fetchMoreFmSongs()
+    }
   } else {
-    if (currentFmSong.value) fmHistory.value.push(currentFmSong.value)
-    loadFmSongs().then(() => { if (currentFmSong.value) playCurrentFm() })
+    loading.value = true
+    try {
+      const res = await getPersonalFM()
+      if (res.code === 200 && res.data?.length) {
+        const newSongs = res.data.map(normSong).filter(s => !fmSongs.value.some(existing => existing.id === s.id))
+        if (newSongs.length) {
+          fmSongs.value.push(...newSongs)
+          fmIndex.value++
+          playCurrentFm()
+        } else {
+          fmSongs.value = res.data.map(normSong)
+          fmIndex.value = 0
+          playCurrentFm()
+        }
+      }
+    } finally {
+      loading.value = false
+    }
   }
 }
 
@@ -228,41 +280,55 @@ function trashCurrent() {
 // 进度条：点击/拖拽定位（仅当 FM 歌曲是正在播放的歌时可用）
 const progressEl = ref(null)
 let seeking = false
-// 全局 progress/time 属于"正在播放的歌"；若 FM 歌曲未在播放（如刚进页面还在放上一首），不显示其实时进度
+const seekProgress = ref(0)
+
 const isFmPlaying = computed(() => songId.value === currentFmSong.value?.id)
-const displayProgress = computed(() => isFmPlaying.value ? (progress.value || 0) : 0)
+const displayProgress = computed(() => {
+  if (seeking) return seekProgress.value
+  return isFmPlaying.value ? (progress.value || 0) : 0
+})
 const displayTime = computed(() => {
   if (isFmPlaying.value && time.value) return time.value
   return Math.floor((currentFmSong.value?.dt || currentFmSong.value?.duration || 0) / 1000)
 })
 const progressPct = computed(() => {
   if (!displayTime.value || displayTime.value <= 0) return 0
-  return Math.min(100, displayProgress.value / displayTime.value * 100)
+  return Math.min(100, (displayProgress.value / displayTime.value) * 100)
 })
 
-function seekFromEvent(e) {
+function getSeekTimeFromEvent(e) {
   const el = progressEl.value
-  if (!el || !time.value) return
+  const total = displayTime.value || time.value
+  if (!el || !total) return 0
   const rect = el.getBoundingClientRect()
   const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
-  changeProgress(ratio * time.value)
+  return ratio * total
 }
-function onSeekMove(e) { if (seeking) seekFromEvent(e) }
+
+function onSeekDown(e) {
+  if (!isFmPlaying.value || !displayTime.value) return
+  seeking = true
+  changeProgressByDragStart()
+  const targetTime = getSeekTimeFromEvent(e)
+  seekProgress.value = targetTime
+  window.addEventListener('pointermove', onSeekMove)
+  window.addEventListener('pointerup', onSeekUp)
+}
+
+function onSeekMove(e) {
+  if (seeking) {
+    seekProgress.value = getSeekTimeFromEvent(e)
+  }
+}
+
 function onSeekUp(e) {
   if (!seeking) return
   seeking = false
-  seekFromEvent(e)
-  changeProgressByDragEnd(progress.value)
+  const targetTime = getSeekTimeFromEvent(e)
+  seekProgress.value = targetTime
+  changeProgressByDragEnd(targetTime)
   window.removeEventListener('pointermove', onSeekMove)
   window.removeEventListener('pointerup', onSeekUp)
-}
-function onSeekDown(e) {
-  if (!isFmPlaying.value || !time.value) return
-  seeking = true
-  changeProgressByDragStart()
-  seekFromEvent(e)
-  window.addEventListener('pointermove', onSeekMove)
-  window.addEventListener('pointerup', onSeekUp)
 }
 
 // 喜欢（与全局播放器一致，作用于正在播放的这首歌）
@@ -363,13 +429,14 @@ onUnmounted(() => {
           <!-- 上一首 -->
           <svg @click="prevFm" :class="{ off: fmHistory.length === 0 }" class="ctrl" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="p0" x="0" y="0" width="200" height="200"/></defs><g transform="translate(0 0) rotate(0 100 100)"><mask id="m0" fill="white"><use xlink:href="#p0"/></mask><g mask="url(#m0)"><path style="stroke:currentColor;stroke-width:10" transform="translate(35 44) rotate(-90 67 53)" d="M133.6,106L66.8,0L0,106"/></g></g></svg>
           <!-- 暂停 -->
-          <svg v-show="playing" @click="pauseMusic()" class="ctrl ctrl-play" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="p1" x="0" y="0" width="200" height="200"/></defs><g transform="translate(0 0) rotate(0 100 100)"><mask id="m1" fill="white"><use xlink:href="#p1"/></mask><g mask="url(#m1)"><path style="fill:currentColor;stroke:currentColor;stroke-width:8" transform="translate(152 24)" d="M0,0L0,152"/><path style="fill:currentColor;stroke:currentColor;stroke-width:8" transform="translate(48 24)" d="M0,0L0,152"/></g></g></svg>
+          <svg v-show="playing && isFmPlaying" @click="pauseMusic()" class="ctrl ctrl-play" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="p1" x="0" y="0" width="200" height="200"/></defs><g transform="translate(0 0) rotate(0 100 100)"><mask id="m1" fill="white"><use xlink:href="#p1"/></mask><g mask="url(#m1)"><path style="fill:currentColor;stroke:currentColor;stroke-width:8" transform="translate(152 24)" d="M0,0L0,152"/><path style="fill:currentColor;stroke:currentColor;stroke-width:8" transform="translate(48 24)" d="M0,0L0,152"/></g></g></svg>
           <!-- 播放 -->
-          <svg v-show="!playing" @click="playCurrentFm" class="ctrl ctrl-play" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="p3" x="0" y="0" width="200" height="200"/></defs><g transform="translate(0 0) rotate(0 100 100)"><mask id="m3" fill="white"><use xlink:href="#p3"/></mask><g mask="url(#m3)"><path style="stroke:currentColor;stroke-width:8" transform="translate(0 12) rotate(90 88 88)" d="M11.8,132L164.2,132L88,0L11.8,132Z"/></g></g></svg>
+          <svg v-show="!playing || !isFmPlaying" @click="togglePlayFm" class="ctrl ctrl-play" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="p3" x="0" y="0" width="200" height="200"/></defs><g transform="translate(0 0) rotate(0 100 100)"><mask id="m3" fill="white"><use xlink:href="#p3"/></mask><g mask="url(#m3)"><path style="stroke:currentColor;stroke-width:8" transform="translate(0 12) rotate(90 88 88)" d="M11.8,132L164.2,132L88,0L11.8,132Z"/></g></g></svg>
           <!-- 下一首 -->
           <svg @click="nextFm" :class="{ off: loading }" class="ctrl" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" viewBox="0 0 200 200" fill="none"><defs><rect id="p2" x="0" y="0" width="200" height="200"/></defs><g transform="translate(0 0) rotate(0 100 100)"><mask id="m2" fill="white"><use xlink:href="#p2"/></mask><g mask="url(#m2)"><path style="stroke:currentColor;stroke-width:10" transform="translate(35 44) rotate(90 67 53)" d="M133.6,106L66.8,0L0,106"/></g></g></svg>
-          <!-- 喜欢：始终显示，作用于当前 FM 歌曲 -->
-          <svg v-if="userStore.likelist" @click="likeSong(!checkIsLike(currentFmSong.id), currentFmSong.id)" class="ctrl ctrl-like" :class="{ liked: checkIsLike(currentFmSong.id) }" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="200" height="200"><path fill="currentColor" d="M736.603 35.674c-87.909 0-169.647 44.1-223.447 116.819C459.387 79.756 377.665 35.674 289.708 35.674c-158.47 0-287.397 140.958-287.397 314.233 0 103.371 46.177 175.887 83.296 234.151 107.88 169.236 379.126 379.846 390.616 388.725 11.068 8.557 24.007 12.837 36.917 12.837 12.939 0 25.861-4.28 36.917-12.837 11.503-8.879 282.765-219.488 390.614-388.725C977.808 525.793 1024 453.277 1024 349.907 1023.999 176.632 895.071 35.674 736.603 35.674z"/></svg>
+          <!-- 喜欢：使用 dock 栏同款 UI（未喜欢空心黑，已喜欢红心） -->
+          <svg t="1668786418014" v-if="userStore.likelist" @click="likeSong(true, currentFmSong.id)" v-show="!checkIsLike(currentFmSong.id)" class="ctrl ctrl-like" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="1417" width="200" height="200"><path d="M736.603 35.674c-87.909 0-169.647 44.1-223.447 116.819C459.387 79.756 377.665 35.674 289.708 35.674c-158.47 0-287.397 140.958-287.397 314.233 0 103.371 46.177 175.887 83.296 234.151 107.88 169.236 379.126 379.846 390.616 388.725 11.068 8.557 24.007 12.837 36.917 12.837 12.939 0 25.861-4.28 36.917-12.837 11.503-8.879 282.765-219.488 390.614-388.725C977.808 525.793 1024 453.277 1024 349.907 1023.999 176.632 895.071 35.674 736.603 35.674zM888.196 544.065C785.507 705.207 513.139 915.679 513.139 915.679S240.802 705.206 138.113 544.065C104.912 491.954 63.866 427.172 63.866 349.907c0-137.95 102.327-250.367 225.842-250.367 79.529 0 148.971 46.903 186.757 119.539 7.408 14.241 21.849 22.887 36.674 22.887 14.826 0 29.266-8.646 36.674-22.887 37.786-72.636 107.228-119.539 186.757-119.539 123.515 0 225.842 112.417 225.842 250.367 0 77.265-41.046 142.047-74.247 194.158z" fill="currentColor" p-id="1418"></path></svg>
+          <svg t="1668786896650" v-if="userStore.likelist" @click="likeSong(false, currentFmSong.id)" v-show="checkIsLike(currentFmSong.id)" class="ctrl ctrl-like" viewBox="0 0 1025 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" p-id="9975" width="200" height="200"><path d="M1024.549 360.609c0-170.492-133.815-309.265-298.055-309.265-81.129 0-157.91 34.998-213.344 94.701-55.509-59.702-132.367-94.701-213.344-94.701C135.49 51.344 1.751 190.041 1.751 360.609c0 5.719 0.534 10.827 0.991 15.021-0.076 1.373-0.152 2.745-0.152 4.194 0 30.193 7.319 63.361 21.73 98.59 0.458 1.295 0.915 2.516 1.449 3.657 90.812 217.844 440.412 468.474 455.279 479.985 9.227 7.092 20.205 10.6 31.263 10.6 11.209 0 22.266-3.659 31.566-10.903 12.733-9.911 310.941-224.551 429.279-427.603 4.498-6.861 7.854-13.494 10.828-19.976 0.381-0.915 0.763-1.83 1.067-2.668 14.412-35.305 21.731-68.549 21.731-98.742 0-1.449-0.076-2.821-0.152-4.194 0.457-4.194 0.991-9.302 0.991-15.021z" fill="#EC4141" p-id="9976"></path></svg>
           <!-- 不感兴趣：移入 FM 垃圾桶并跳下一首 -->
           <svg @click="trashCurrent()" class="ctrl" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024"><path fill="currentColor" d="M512 64c-70.7 0-128 57.3-128 128H213.3c-47.1 0-85.3 38.2-85.3 85.3h768c0-47.1-38.2-85.3-85.3-85.3H640c0-70.7-57.3-128-128-128z m170.7 298.7v512H341.3v-512h-85.3v512c0 47.1 38.2 85.3 85.3 85.3h341.4c47.1 0 85.3-38.2 85.3-85.3v-512h-85.3z m-277.4 85.3h42.7v341.3h-42.7V448z m128 0h42.7v341.3h-42.7V448z m128 0h42.7v341.3h-42.7V448z"/></svg>
         </div>

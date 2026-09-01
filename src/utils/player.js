@@ -163,10 +163,13 @@ function skipUnplayable(msg) {
     lyric.value = null
     scrobbleState = {
         songId: null,
+        name: '',
+        artist: '',
         sourceId: 0,
         duration: 0,
         listenedSeconds: 0,
         lastPlayTime: null,
+        startplaySent: false,
         scrobbled: false,
     }
     noticeOpen(msg, 2)
@@ -754,6 +757,7 @@ export function changeProgress(toTime) {
     if(videoIsPlaying.value) {
         musicVideoCheck(toTime, true)
     }
+    progress.value = toTime
     if(currentMusic.value) currentMusic.value.seek(toTime)
 }
 //控制拖拽进度条

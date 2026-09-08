@@ -108,7 +108,7 @@ Hydrogen Music 深度融合了现代视听交互与全栈工程架构，带来�
 
 | 独立排行榜单 · 炫彩卡片矩阵 | 个人听歌排行 · 偏好足迹 |
 |:---:|:---:|
-| <img src="img/musiccharts.jpg" alt="独立排行榜单" width="100%" /> | <img src="img/ranking.jpg" alt="听歌排行" width="100%" /> |
+| <img src="img/ranking.jpg" alt="独立排行榜单" width="100%" /> | <img src="img/musiccharts.jpg" alt="听歌排行" width="100%" /> |
 
 | 歌单与媒体库详情 | Bilibili 高清 MV 视频联动 |
 |:---:|:---:|

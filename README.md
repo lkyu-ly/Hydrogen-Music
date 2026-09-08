@@ -102,18 +102,17 @@ Hydrogen Music 深度融合了现代视听交互与全栈工程架构，带来�
 |:---:|:---:|
 | <img src="img/home.png" alt="首页探索" width="100%" /> | <img src="img/lyric2.png" alt="动态歌词" width="100%" /> |
 
-| Heartbeat · 心动模式 (私人 FM) | 纯享歌词与专辑视效 |
+| Heartbeat · 心动模式 (私人 FM) | 歌单与媒体库详情 |
 |:---:|:---:|
-| <img src="img/FMradio.jpg" alt="心动模式 私人FM" width="100%" /> | <img src="img/lyric1.png" alt="纯享歌词" width="100%" /> |
+| <img src="img/FMradio.jpg" alt="心动模式 私人FM" width="100%" /> | <img src="img/playlist.png" alt="歌单详情" width="100%" /> |
 
 | 独立排行榜单 · 炫彩卡片矩阵 | 个人听歌排行 · 偏好足迹 |
 |:---:|:---:|
 | <img src="img/ranking.jpg" alt="独立排行榜单" width="100%" /> | <img src="img/musiccharts.jpg" alt="听歌排行" width="100%" /> |
 
-| 歌单与媒体库详情 | Bilibili 高清 MV 视频联动 |
-|:---:|:---:|
-| <img src="img/playlist.png" alt="歌单详情" width="100%" /> | <img src="img/music_video.png" alt="MV 视频播放" width="100%" /> |
-
+| Bilibili 高清 MV 视频联动 |
+|:---:|
+| <img src="img/music_video.png" alt="MV 视频播放" width="85%" /> |
 </div>
 
 ---

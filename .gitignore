@@ -41,3 +41,4 @@ DEBUG_REPORT.md
 .scratch/
 .spec-workflow/
 docs/agents/
+.playwright-mcp
